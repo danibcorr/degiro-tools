@@ -49,11 +49,6 @@ jobs:
             asset_name: degiro-calc-windows-x86_64.exe
             binary_suffix: ".exe"
 
-          - os: macos-13
-            platform: macOS x86_64
-            asset_name: degiro-calc-macos-x86_64
-            binary_suffix: ""
-
           - os: macos-latest
             platform: macOS ARM64
             asset_name: degiro-calc-macos-aarch64

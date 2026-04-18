@@ -14,7 +14,7 @@ Requiere Python 3.11+. Dependencia de runtime única:
 
 **Binario standalone** (sin Python): descarga el archivo para tu plataforma desde
 [Releases](https://github.com/danibcorr/degiro-calculator/releases) (`linux-x86_64`,
-`windows-x86_64.exe`, `macos-x86_64`, `macos-aarch64`). En Linux/macOS:
+`windows-x86_64.exe`, `macos-aarch64`). En Linux/macOS:
 `chmod +x degiro-calc-*`. En macOS, si Gatekeeper bloquea el binario:
 `xattr -d com.apple.quarantine degiro-calc-macos-*`.
 
