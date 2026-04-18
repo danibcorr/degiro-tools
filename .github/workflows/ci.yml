@@ -31,8 +31,74 @@ jobs:
       - name: Tests
         run: make test
 
-  release:
+  build:
+    name: Build - ${{ matrix.platform }}
     needs: ci
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: Linux x86_64
+            asset_name: degiro-calc-linux-x86_64
+            binary_suffix: ""
+
+          - os: windows-latest
+            platform: Windows x86_64
+            asset_name: degiro-calc-windows-x86_64.exe
+            binary_suffix: ".exe"
+
+          - os: macos-13
+            platform: macOS x86_64
+            asset_name: degiro-calc-macos-x86_64
+            binary_suffix: ""
+
+          - os: macos-latest
+            platform: macOS ARM64
+            asset_name: degiro-calc-macos-aarch64
+            binary_suffix: ""
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.1.0
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install
+
+      - name: Install dependencies
+        run: uv sync --group pipeline
+
+      - name: Install PyInstaller
+        run: uv pip install pyinstaller
+
+      - name: Build standalone binary
+        shell: bash
+        run: |
+          uv run pyinstaller \
+            --onefile \
+            --name degiro-calc \
+            --console \
+            --copy-metadata rich \
+            degiro_calculator/__main__.py
+          mv "dist/degiro-calc${{ matrix.binary_suffix }}" "${{ matrix.asset_name }}"
+
+      - name: Smoke test binary
+        shell: bash
+        run: ./${{ matrix.asset_name }} --help
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset_name }}
+          path: ${{ matrix.asset_name }}
+
+  release:
+    name: Create GitHub Release
+    needs: build
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
@@ -51,34 +117,44 @@ jobs:
         id: version
         run: |
           VERSION=$(uv version --short)
-          echo "TAG=v${VERSION}" >> "$GITHUB_ENV"
+          echo "tag=v${VERSION}" >> "$GITHUB_OUTPUT"
 
       - name: Check if tag exists
         id: check_tag
         run: |
-          if git ls-remote --tags origin "refs/tags/${{ env.TAG }}" | grep -q .; then
-            echo "::notice::Tag ${{ env.TAG }} already exists — skipping release"
+          if git ls-remote --tags origin "refs/tags/${{ steps.version.outputs.tag }}" | grep -q .; then
+            echo "::notice::Tag ${{ steps.version.outputs.tag }} already exists — skipping release"
             echo "exists=true" >> "$GITHUB_OUTPUT"
           else
             echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
+
+      - name: Download all artifacts
+        if: steps.check_tag.outputs.exists == 'false'
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Build Python distribution (wheel + sdist)
+        if: steps.check_tag.outputs.exists == 'false'
+        run: uv build
 
       - name: Create and push tag
         if: steps.check_tag.outputs.exists == 'false'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag -a "$TAG" -m "Release $TAG"
-          git push origin "$TAG"
-
-      - name: Build distribution
-        if: steps.check_tag.outputs.exists == 'false'
-        run: uv build
+          git tag -a "${{ steps.version.outputs.tag }}" -m "Release ${{ steps.version.outputs.tag }}"
+          git push origin "${{ steps.version.outputs.tag }}"
 
       - name: Create GitHub Release
         if: steps.check_tag.outputs.exists == 'false'
         uses: softprops/action-gh-release@v3
         with:
-          tag_name: ${{ env.TAG }}
-          files: dist/*
+          tag_name: ${{ steps.version.outputs.tag }}
+          files: |
+            artifacts/**/degiro-calc-*
+            dist/*
           generate_release_notes: true
+          draft: false
+          prerelease: false
