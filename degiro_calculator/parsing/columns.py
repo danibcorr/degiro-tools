@@ -1,0 +1,7 @@
+FECHA_COL: int = 0
+HORA_COL: int = 1
+ISIN_COL: int = 4
+DESCRIPCION_COL: int = 5
+DIVISA_COL: int = 7
+VARIACION_COL: int = 8
+ID_ORDEN_COL: int = 11

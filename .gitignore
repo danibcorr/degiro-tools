@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.complexipy_cache/
+.uv-cache/
+.venv/
+*venv/
+*build/
+*dist/
+
+# Tooling
+.coverage
+coverage.xml
+htmlcov/
+logs/
+*.log
+.kiro
+.idea/
+.vscode/
+
+# OS / editor
+.DS_Store
+*.bak
+*.swp
+*~
+
+# Secrets
+.env
+.env.*
+
+# Project data
+*.csv
+!tests/fixtures/sample.csv

@@ -1,0 +1,68 @@
+[build-system]
+requires = ["uv_build>=0.11.7,<0.12.0"]
+build-backend = "uv_build"
+
+[project]
+name = "degiro-calculator"
+version = "0.1.0"
+description = "Calculadora IRPF (España) de ganancias/pérdidas patrimoniales desde extractos Degiro."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "rich==15.0.0",
+]
+
+[tool.uv.build-backend]
+module-name = "degiro_calculator"
+module-root = ""
+
+[dependency-groups]
+pipeline = [
+    "complexipy==5.3.0",
+    "mypy==1.20.1",
+    "pytest==9.0.3",
+    "ruff==0.15.11",
+]
+
+[project.scripts]
+degiro-calc = "degiro_calculator.cli:main"
+
+[tool.ruff]
+line-length = 88
+indent-width = 4
+extend-exclude = [".venv", ".uv-cache"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "PL", "UP", "N", "B", "I"]
+ignore = [
+    "PLC0415",
+]
+
+[tool.ruff.format]
+docstring-code-format = true
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
+
+[tool.ruff.lint.isort]
+known-first-party = ["degiro_calculator"]
+section-order = ["future", "standard-library", "third-party", "first-party", "local-folder"]
+combine-as-imports = true
+split-on-trailing-comma = true
+
+[tool.ruff.lint.isort.import-heading]
+standard-library = "Standard libraries"
+third-party = "3pps"
+first-party = "Own modules"
+local-folder = "Own modules"
+
+[tool.mypy]
+strict = true
+ignore_missing_imports = true
+exclude = [
+    "^(build|dist|venv)",
+    ".venv/",
+    ".uv-cache/"
+]
+cache_dir = "/dev/null"
