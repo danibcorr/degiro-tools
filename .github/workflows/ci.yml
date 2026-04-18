@@ -83,7 +83,7 @@ jobs:
             --name degiro-calc \
             --console \
             --copy-metadata rich \
-            entrypoint.py
+            degiro_calculator/__main__.py
           mv "dist/degiro-calc${{ matrix.binary_suffix }}" "${{ matrix.asset_name }}"
 
       - name: Smoke test binary
