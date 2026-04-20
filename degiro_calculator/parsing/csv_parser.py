@@ -206,8 +206,11 @@ def build_operacion_from_group(rows: list[dict[str, str]]) -> list[Operacion]:
     if len(headers) == 1:
         header = headers[0]
         match = OPERATION_REGEX.match(header["desc"])
+
         assert match is not None
+
         contravalor = resolve_eur_amount(header, rows)
+
         return [
             Operacion(
                 fecha=parse_date(header["fecha"]),
@@ -240,7 +243,9 @@ def build_operacion_from_group(rows: list[dict[str, str]]) -> list[Operacion]:
     ops: list[Operacion] = []
     for header in headers:
         match = OPERATION_REGEX.match(header["desc"])
+
         assert match is not None
+
         qty = int(match.group(2))
         ratio = Decimal(qty) / Decimal(total_qty)
 
@@ -298,4 +303,5 @@ def parse_csv(path: Path) -> tuple[list[Operacion], Decimal]:
         ops.extend(build_operacion_from_group(rows))
 
     ops.sort(key=lambda o: (o.fecha, o.hora))
+
     return ops, comisiones_conectividad
