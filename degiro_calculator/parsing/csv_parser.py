@@ -171,29 +171,29 @@ def resolve_eur_amount(header: dict[str, str], rows: list[dict[str, str]]) -> De
     )
 
 
-def build_operacion_from_group(rows: list[dict[str, str]]) -> Operacion | None:
+def build_operacion_from_group(rows: list[dict[str, str]]) -> list[Operacion]:
     """
-    Construye una ``Operacion`` a partir de las filas agrupadas.
+    Construye una o más ``Operacion`` a partir de las filas agrupadas.
+
+    Cuando una orden tiene ejecuciones parciales (varias filas de compra/venta
+    con el mismo ID Orden), genera una operación por cada ejecución y reparte
+    las comisiones proporcionalmente por cantidad de acciones.
 
     Args:
         rows: Filas del CSV pertenecientes a una misma operación.
 
     Returns:
-        Operación normalizada, o ``None`` si el grupo no contiene una fila de
-        compra/venta reconocible.
+        Lista de operaciones normalizadas (vacía si el grupo no contiene filas
+        de compra/venta reconocibles).
 
     Raises:
         ValueError: Si no puede resolverse el contravalor EUR o la fecha.
     """
 
-    header = next((r for r in rows if OPERATION_REGEX.match(r["desc"])), None)
-    if not header:
-        return None
+    headers = [r for r in rows if OPERATION_REGEX.match(r["desc"])]
+    if not headers:
+        return []
 
-    match = OPERATION_REGEX.match(header["desc"])
-    assert match is not None
-
-    contravalor = resolve_eur_amount(header, rows)
     comision_total = sum(
         (
             to_decimal(r["var"])
@@ -203,16 +203,71 @@ def build_operacion_from_group(rows: list[dict[str, str]]) -> Operacion | None:
         Decimal(0),
     )
 
-    return Operacion(
-        fecha=parse_date(header["fecha"]),
-        hora=header["hora"],
-        isin=header["isin"],
-        producto=header["desc"].split("@")[0].split(" ", 2)[2].strip(),
-        tipo=TipoOperacion(match.group(1)),
-        cantidad=int(match.group(2)),
-        contravalor_eur=contravalor,
-        comision_eur=comision_total,
+    if len(headers) == 1:
+        header = headers[0]
+        match = OPERATION_REGEX.match(header["desc"])
+        assert match is not None
+        contravalor = resolve_eur_amount(header, rows)
+        return [
+            Operacion(
+                fecha=parse_date(header["fecha"]),
+                hora=header["hora"],
+                isin=header["isin"],
+                producto=header["desc"].split("@")[0].split(" ", 2)[2].strip(),
+                tipo=TipoOperacion(match.group(1)),
+                cantidad=int(match.group(2)),
+                contravalor_eur=contravalor,
+                comision_eur=comision_total,
+            )
+        ]
+
+    # Ejecuciones parciales: repartir comisiones y cambio de divisa por cantidad
+    total_qty = sum(
+        int(OPERATION_REGEX.match(h["desc"]).group(2))  # type: ignore[union-attr]
+        for h in headers
     )
+
+    # Cambio de divisa del grupo (si existe, se reparte proporcionalmente)
+    cambio_eur_total = next(
+        (
+            to_decimal(r["var"])
+            for r in rows
+            if "Cambio de Divisa" in r["desc"] and r["div"] == "EUR"
+        ),
+        None,
+    )
+
+    ops: list[Operacion] = []
+    for header in headers:
+        match = OPERATION_REGEX.match(header["desc"])
+        assert match is not None
+        qty = int(match.group(2))
+        ratio = Decimal(qty) / Decimal(total_qty)
+
+        if cambio_eur_total is not None:
+            contravalor = cambio_eur_total * ratio
+        elif header["div"] == "EUR":
+            contravalor = to_decimal(header["var"])
+        else:
+            raise ValueError(
+                f"Sin contravalor EUR para operación {header['fecha']} "
+                f"{header['hora']} {header['isin']}"
+            )
+
+        ops.append(
+            Operacion(
+                fecha=parse_date(header["fecha"]),
+                hora=header["hora"],
+                isin=header["isin"],
+                producto=header["desc"].split("@")[0].split(" ", 2)[2].strip(),
+                tipo=TipoOperacion(match.group(1)),
+                cantidad=qty,
+                contravalor_eur=contravalor,
+                comision_eur=comision_total * ratio,
+            )
+        )
+
+    return ops
 
 
 def parse_csv(path: Path) -> tuple[list[Operacion], Decimal]:
@@ -240,9 +295,7 @@ def parse_csv(path: Path) -> tuple[list[Operacion], Decimal]:
 
     ops: list[Operacion] = []
     for rows in groups.values():
-        op = build_operacion_from_group(rows)
-        if op is not None:
-            ops.append(op)
+        ops.extend(build_operacion_from_group(rows))
 
     ops.sort(key=lambda o: (o.fecha, o.hora))
     return ops, comisiones_conectividad
