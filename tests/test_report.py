@@ -9,7 +9,7 @@ import pytest
 from rich.console import Console
 
 # Own modules
-from degiro_calculator import Lote, Venta, imprimir_informe
+from degiro_tools import Lote, Venta, imprimir_informe
 
 
 @pytest.fixture

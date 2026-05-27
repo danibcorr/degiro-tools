@@ -5,7 +5,7 @@ from decimal import Decimal
 import pytest
 
 # Own modules
-from degiro_calculator import calcular_cuota_irpf
+from degiro_tools import calcular_cuota_irpf
 
 EXPECTED_TRAMOS_10K = 2
 EXPECTED_TRAMOS_60K = 3

@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 # Own modules
-from degiro_calculator import Operacion, TipoOperacion, parse_csv
+from degiro_tools import Operacion, TipoOperacion, parse_csv
 
 FIXTURE = Path(__file__).parent / "fixtures" / "sample.csv"
 

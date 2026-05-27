@@ -3,7 +3,7 @@ from datetime import date
 from decimal import Decimal
 
 # Own modules
-from degiro_calculator import Operacion, TipoOperacion
+from degiro_tools import Operacion, TipoOperacion
 
 
 def _make(  # noqa: PLR0913 - builder de tests

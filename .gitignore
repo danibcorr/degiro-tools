@@ -32,4 +32,5 @@ logs/
 
 # Project data
 *.csv
+*.xlsx
 !tests/fixtures/sample.csv

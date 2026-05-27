@@ -5,7 +5,7 @@ from decimal import Decimal
 import pytest
 
 # Own modules
-from degiro_calculator import calcular_fifo
+from degiro_tools import calcular_fifo
 from tests.conftest import make_compra, make_venta
 
 EXPECTED_PENDIENTES_CANTIDAD = 5

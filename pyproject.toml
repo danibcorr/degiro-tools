@@ -3,17 +3,20 @@ requires = ["uv_build>=0.11.7,<0.12.0"]
 build-backend = "uv_build"
 
 [project]
-name = "degiro-calculator"
+name = "degiro-tools"
 version = "0.1.1"
 description = "Calculadora IRPF (España) de ganancias/pérdidas patrimoniales desde extractos Degiro."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "rich==15.0.0",
+    "polars==1.40.1",
+    "yfinance==1.4.0",
+    "openpyxl==3.1.5",
 ]
 
 [tool.uv.build-backend]
-module-name = "degiro_calculator"
+module-name = "degiro_tools"
 module-root = ""
 
 [dependency-groups]
@@ -25,7 +28,7 @@ pipeline = [
 ]
 
 [project.scripts]
-degiro-calc = "degiro_calculator.cli:main"
+degiro-tools = "degiro_tools.cli:main"
 
 [tool.ruff]
 line-length = 88
@@ -46,7 +49,7 @@ skip-magic-trailing-comma = false
 line-ending = "auto"
 
 [tool.ruff.lint.isort]
-known-first-party = ["degiro_calculator"]
+known-first-party = ["degiro_tools"]
 section-order = ["future", "standard-library", "third-party", "first-party", "local-folder"]
 combine-as-imports = true
 split-on-trailing-comma = true

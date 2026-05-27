@@ -6,7 +6,7 @@
 
 .DEFAULT_GOAL := pipeline
 
-PATH_RESEARCH ?= degiro_calculator
+PATH_RESEARCH ?= degiro_tools
 PATH_TESTS ?= tests
 PATH_PROJECT_ROOT ?= .
 

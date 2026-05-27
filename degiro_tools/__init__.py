@@ -12,7 +12,7 @@ from .domain import InformeData, Lote, Operacion, TipoOperacion, TramoCuota, Ven
 from .parsing import parse_csv
 from .reporting import imprimir_informe
 
-__version__: str = importlib.metadata.version("degiro_calculator")
+__version__: str = importlib.metadata.version("degiro_tools")
 
 __all__: list[str] = [
     "InformeData",
