@@ -41,17 +41,17 @@ jobs:
         include:
           - os: ubuntu-latest
             platform: Linux x86_64
-            asset_name: degiro-calc-linux-x86_64
+            asset_name: degiro-tools-linux-x86_64
             binary_suffix: ""
 
           - os: windows-latest
             platform: Windows x86_64
-            asset_name: degiro-calc-windows-x86_64.exe
+            asset_name: degiro-tools-windows-x86_64.exe
             binary_suffix: ".exe"
 
           - os: macos-latest
             platform: macOS ARM64
-            asset_name: degiro-calc-macos-aarch64
+            asset_name: degiro-tools-macos-aarch64
             binary_suffix: ""
     steps:
       - uses: actions/checkout@v6
@@ -75,11 +75,11 @@ jobs:
         run: |
           uv run pyinstaller \
             --onefile \
-            --name degiro-calc \
+            --name degiro-tools \
             --console \
             --copy-metadata rich \
-            degiro_calculator/__main__.py
-          mv "dist/degiro-calc${{ matrix.binary_suffix }}" "${{ matrix.asset_name }}"
+            degiro_tools/__main__.py
+          mv "dist/degiro-tools${{ matrix.binary_suffix }}" "${{ matrix.asset_name }}"
 
       - name: Smoke test binary
         shell: bash
@@ -148,7 +148,7 @@ jobs:
         with:
           tag_name: ${{ steps.version.outputs.tag }}
           files: |
-            artifacts/**/degiro-calc-*
+            artifacts/**/degiro-tools-*
             dist/*
           generate_release_notes: true
           draft: false
