@@ -16,6 +16,10 @@ dependencies = [
     "fastexcel==0.20.2",
 ]
 
+[tool.uv]
+default-groups = "all"
+cache-keys = [{ file = "pyproject.toml" }, { git = { commit = true } }]
+
 [tool.uv.build-backend]
 module-name = "degiro_tools"
 module-root = ""
