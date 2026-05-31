@@ -14,10 +14,6 @@ runs:
       shell: bash
       run: uv run ruff check ${{ inputs.src-project-folder }}/
 
-    - name: Check Imports with isort
-      shell: bash
-      run: uv run isort --check ${{ inputs.src-project-folder }}/
-
     - name: Check Cognitive Complexity
       shell: bash
       run: uv run complexipy -f ${{ inputs.src-project-folder }}/
