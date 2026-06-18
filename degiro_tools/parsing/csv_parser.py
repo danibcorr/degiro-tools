@@ -5,6 +5,7 @@ from collections import defaultdict
 from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
+from typing import Final
 
 # Own modules
 from ..domain.models import Operacion, TipoOperacion
@@ -18,8 +19,10 @@ from .columns import (
     VARIACION_COL,
 )
 
-OPERATION_REGEX = re.compile(r"^(Compra|Venta)\s+(\d+)\s+.*@([\d.,]+)\s+\w+")
-FEE_DESCRIPTIONS: tuple[str, ...] = (
+OPERATION_REGEX: Final[re.Pattern[str]] = re.compile(
+    r"^(Compra|Venta)\s+(\d+)\s+.*@([\d.,]+)\s+\w+"
+)
+FEE_DESCRIPTIONS: Final[tuple[str, ...]] = (
     "Costes de transacción",
     "Comisión",
     "Tasa",

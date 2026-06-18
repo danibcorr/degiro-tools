@@ -1,91 +1,48 @@
 # Degiro Tools
 
-Herramientas en Python para inversores que usan Degiro:
+CLI para inversores en Degiro: cálculo fiscal IRPF, valoración de cartera y análisis de
+composición de ETFs.
 
-1. **Tax** — Estima el IRPF (España) de ganancias/pérdidas patrimoniales a partir de un
-   extracto CSV de Degiro («Estado de cuenta»). Aplica FIFO por ISIN usando el
-   contravalor EUR real del broker, imputa comisiones al coste o a la transmisión y
-   estima la cuota por tramos de la base del ahorro.
-
-2. **Portfolio** — Muestra la valoración actual de la cartera en tiempo real con precios
-   de Yahoo Finance, clasificación ETF/Acción y porcentaje de cada posición sobre el
-   total invertido. Lee el fichero XLSX exportado desde Degiro (Portfolio).
-
-Requiere Python 3.11+.
-
-## Instalación
-
-Con [uv](https://docs.astral.sh/uv/):
-
-```bash
-uv sync                     # runtime
-uv sync --group pipeline    # + ruff/mypy/complexipy/pytest
-```
+Python 3.11+ · [uv](https://docs.astral.sh/uv/) · `uv sync`
 
 ## Uso
 
 ```bash
-# Cálculo fiscal desde CSV (Estado de cuenta)
-uv run degiro-tools tax Account.csv
-
-# Valoración de cartera desde XLSX (Portfolio)
-uv run degiro-tools portfolio Portfolio.xlsx
+uv run degiro-tools tax Account.csv                          # IRPF (FIFO)
+uv run degiro-tools portfolio holdings/Portfolio.xlsx        # Valoración actual
+uv run degiro-tools holdings holdings/Portfolio.xlsx         # Top holdings reales
+uv run degiro-tools overlap holdings/Portfolio.xlsx          # Solapamiento entre ETFs
+uv run degiro-tools sectors holdings/Portfolio.xlsx          # Distribución sectorial
+uv run degiro-tools geography holdings/Portfolio.xlsx        # Distribución geográfica
 ```
 
-### Subcomando `tax`
+Los 4 últimos requieren `--config holdings.json` (default) con los ficheros de holdings.
 
-```
-degiro-tools tax <csv_path> [--no-tax] [-v/--verbose] [--version]
-```
+## Setup de holdings
 
-- `--no-tax` — Omite la estimación IRPF.
-- `-v/--verbose` — Traceback completo en caso de error.
+1. Descarga los holdings de cada ETF desde la web del proveedor (iShares `.xls`, Vanguard
+   `.xlsx`)
+2. Colócalos en `holdings/`
+3. Crea `holdings.json`:
 
-La salida usa colores y paneles de rich (verde G/P positivo, rojo negativo). Al redirigir
-a archivo, rich emite texto plano automáticamente.
-
-### Subcomando `portfolio`
-
-```
-degiro-tools portfolio <xlsx_path> [-v/--verbose]
+```json
+{
+  "IE00B4L5Y983": "holdings/msci_world.xls",
+  "IE00BK5BQX27": "holdings/vanguard_europe.xlsx"
+}
 ```
 
-Muestra una tabla con: producto, ISIN, tipo (ETF/Acción), cantidad, precio actual en €,
-importe invertido y porcentaje de la cartera.
+## Opciones
 
-## Dependencias
+| Flag              | Descripción                                 |
+| ----------------- | ------------------------------------------- |
+| `--config <path>` | JSON de holdings (default: `holdings.json`) |
+| `--export <path>` | Exporta resultado a CSV                     |
+| `--no-tax`        | Omite estimación IRPF (solo `tax`)          |
+| `-v`              | Traceback completo                          |
 
-| Paquete                                            | Uso                                         |
-| -------------------------------------------------- | ------------------------------------------- |
-| [rich](https://github.com/Textualize/rich)         | Renderizado del informe fiscal              |
-| [polars](https://pola.rs/)                         | Procesamiento del XLSX de portfolio         |
-| [yfinance](https://github.com/ranaroussi/yfinance) | Precios en tiempo real y conversión USD→EUR |
-| [openpyxl](https://openpyxl.readthedocs.io/)       | Lectura de ficheros Excel                   |
+## Notas
 
-## Normativa aplicada (subcomando `tax`)
-
-Ley 35/2006 del IRPF
-([BOE-A-2006-20764](https://www.boe.es/buscar/act.php?id=BOE-A-2006-20764)):
-
-- **Art. 35.1.b** — gastos inherentes a la adquisición suman al coste.
-- **Art. 35.2** — gastos satisfechos por el transmitente restan del valor de transmisión.
-- **Art. 37.2** — valores homogéneos transmitidos por FIFO.
-- **Art. 66** — tipos progresivos de la base imponible del ahorro (estimación de cuota).
-
-## Limitaciones
-
-### Tax
-
-- No cubre dividendos, intereses ni retenciones.
-- No aplica la regla de los dos meses (recompra) de valores homogéneos.
-- No gestiona splits ni operaciones corporativas complejas.
-- La cuota IRPF es una **estimación aislada**: la real depende del conjunto de tu base
-  del ahorro.
-- Las comisiones de conectividad se reportan aparte, no se imputan al coste FIFO.
-
-### Portfolio
-
-- Requiere conexión a internet (consulta Yahoo Finance).
-- La conversión USD→EUR usa el tipo de cambio del momento de ejecución.
-- La clasificación ETF/Acción se basa en el nombre del producto (heurística por
-  proveedor).
+- `holdings/` y `holdings.json` están en `.gitignore` (datos personales)
+- Precios vía Yahoo Finance (requiere internet)
+- Soporta columnas en español e inglés automáticamente

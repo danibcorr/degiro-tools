@@ -44,6 +44,9 @@ extend-exclude = [".venv", ".uv-cache"]
 select = ["E", "F", "W", "PL", "UP", "N", "B", "I"]
 ignore = [
     "PLC0415",
+    "PLR0912",
+    "PLR0915",
+    "PLR2004",
 ]
 
 [tool.ruff.format]

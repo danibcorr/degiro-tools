@@ -1,50 +1,17 @@
 # Standard libraries
-from dataclasses import dataclass
+from typing import Final
 
+# Column names for the Degiro Portfolio XLSX input
+INPUT_PRODUCT_COL: Final[str] = "Producto"
+INPUT_ISIN_COL: Final[str] = "Symbol/ISIN"
+INPUT_QUANTITY_COL: Final[str] = "Cantidad"
 
-@dataclass
-class DatasetInputFormat:
-    """
-    Configuración de nombres de columna del XLSX de Portfolio de Degiro.
-
-    Define las columnas que se seleccionan del fichero de entrada para
-    identificar cada posición y su cantidad.
-
-    Attributes:
-        product_column_name: Nombre de la columna con el nombre del producto.
-        isin_column_name: Nombre de la columna con el ISIN del instrumento.
-        quantity_column_name: Nombre de la columna con la cantidad de unidades.
-    """
-
-    product_column_name: str = "Producto"
-    isin_column_name: str = "Symbol/ISIN"
-    quantity_column_name: str = "Cantidad"
-
-
-@dataclass
-class DatasetOutputFormat:
-    """
-    Configuración de nombres de columna del DataFrame de salida de portfolio.
-
-    Define los nombres de todas las columnas generadas durante el proceso de
-    enriquecimiento y cálculo de porcentajes.
-
-    Attributes:
-        product_column_name: Nombre del producto.
-        isin_column_name: ISIN del instrumento.
-        product_type_column_name: Clasificación (ETF o Accion).
-        quantity_column_name: Cantidad de unidades.
-        product_price_column_name: Precio unitario actual en EUR.
-        quantity_invested_column_name: Importe invertido en EUR.
-        total_quantity_invested_column_name: Suma total invertida en EUR.
-        percentage_wallet_column_name: Peso de la posición sobre el total (%).
-    """
-
-    product_column_name: str = "Producto"
-    isin_column_name: str = "Symbol/ISIN"
-    product_type_column_name: str = "Tipo"
-    quantity_column_name: str = "Cantidad"
-    product_price_column_name: str = "Precio €"
-    quantity_invested_column_name: str = "Invertido €"
-    total_quantity_invested_column_name: str = "Total €"
-    percentage_wallet_column_name: str = "Porcentaje Cartera"
+# Column names for the enriched portfolio output
+OUTPUT_PRODUCT_COL: Final[str] = "Producto"
+OUTPUT_ISIN_COL: Final[str] = "Symbol/ISIN"
+OUTPUT_TYPE_COL: Final[str] = "Tipo"
+OUTPUT_QUANTITY_COL: Final[str] = "Cantidad"
+OUTPUT_PRICE_COL: Final[str] = "Precio €"
+OUTPUT_INVESTED_COL: Final[str] = "Invertido €"
+OUTPUT_TOTAL_COL: Final[str] = "Total €"
+OUTPUT_PERCENTAGE_COL: Final[str] = "Porcentaje Cartera"
