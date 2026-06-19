@@ -89,6 +89,183 @@ def parse_weight(value: str) -> float | None:
         return None
 
 
+def find_header_row(table: list[list[str]]) -> int | None:
+    """
+    Find the index of the header row in a table of string rows.
+
+    Scans each row looking for any cell that matches a known column
+    alias from ``COLUMN_ALIASES``.
+
+    Args:
+        table: List of rows, each row a list of cell strings.
+
+    Returns:
+        Index of the header row, or None if not found.
+    """
+
+    all_aliases = [
+        alias for alias_list in COLUMN_ALIASES.values() for alias in alias_list
+    ]
+
+    for i, cells in enumerate(table):
+        if any(alias in cells for alias in all_aliases):
+            return i
+
+    return None
+
+
+def resolve_indices(
+    headers: list[str],
+    fields: list[str],
+) -> dict[str, int | None]:
+    """
+    Resolve column indices for multiple logical fields.
+
+    Args:
+        headers: Row of column header strings.
+        fields: Logical field names to resolve.
+
+    Returns:
+        Dict mapping field name to column index (or None if the
+        field was not found in headers).
+    """
+
+    result: dict[str, int | None] = {}
+
+    for field in fields:
+        col = resolve_column(headers, field)
+        result[field] = headers.index(col) if col else None
+
+    return result
+
+
+def extract_xml_rows(root: ET.Element) -> list[list[str]]:
+    """
+    Extract all rows from an XML SpreadsheetML document.
+
+    Args:
+        root: Parsed XML root element.
+
+    Returns:
+        List of rows, each row a list of cell text values.
+    """
+
+    ns = "urn:schemas-microsoft-com:office:spreadsheet"
+    table: list[list[str]] = []
+
+    for row in root.findall(f".//{{{ns}}}Row"):
+        cells: list[str] = []
+        for cell in row.findall(f"{{{ns}}}Cell"):
+            data = cell.find(f"{{{ns}}}Data")
+            cells.append(data.text if data is not None and data.text else "")
+        table.append(cells)
+
+    return table
+
+
+def get_cell(cells: list[str], idx: int | None) -> str:
+    """
+    Safely extract a cell value by index.
+
+    Args:
+        cells: Row of string values.
+        idx: Column index, or None if the column was not resolved.
+
+    Returns:
+        Cell value, or empty string if index is None or out of
+        range.
+    """
+
+    if idx is not None and len(cells) > idx:
+        return cells[idx]
+
+    return ""
+
+
+def is_non_equity(cells: list[str], asset_idx: int | None) -> bool:
+    """
+    Check whether a row should be excluded as non-equity.
+
+    Args:
+        cells: Row of string values.
+        asset_idx: Index of the asset_class column, or None.
+
+    Returns:
+        True if the row has an asset class that is not Equity.
+    """
+
+    asset_val = get_cell(cells, asset_idx)
+
+    return bool(asset_val and asset_val != "Equity")
+
+
+def build_holdings_from_rows(
+    table: list[list[str]],
+    header_idx: int,
+    indices: dict[str, int | None],
+    isin: str,
+    *,
+    filter_equity: bool = False,
+) -> list[Holding]:
+    """
+    Iterate data rows and build Holding objects.
+
+    Shared logic for both XML and XLSX parsers. Skips rows without
+    a valid positive weight or without a name.
+
+    Args:
+        table: All rows as lists of strings.
+        header_idx: Index of the header row (data starts at +1).
+        indices: Dict mapping field names to column indices.
+        isin: Source ETF ISIN for attribution.
+        filter_equity: If True, skip rows where asset_class column
+            is present and not "Equity".
+
+    Returns:
+        List of Holding objects.
+    """
+
+    weight_idx = indices["weight"]
+    if weight_idx is None:
+        return []
+
+    name_idx = indices["name"]
+    ticker_idx = indices.get("ticker")
+    sector_idx = indices.get("sector")
+    location_idx = indices.get("location")
+    asset_idx = indices.get("asset_class")
+
+    holdings: list[Holding] = []
+
+    for cells in table[header_idx + 1 :]:
+        if len(cells) <= weight_idx:
+            continue
+
+        if filter_equity and is_non_equity(cells, asset_idx):
+            continue
+
+        weight = parse_weight(cells[weight_idx])
+        if weight is None or weight <= 0:
+            continue
+
+        name = get_cell(cells, name_idx)
+        if not name or name == "null":
+            continue
+
+        holdings.append(
+            Holding(
+                name=name,
+                ticker=get_cell(cells, ticker_idx),
+                sector=get_cell(cells, sector_idx),
+                weight_pct=weight,
+                location=get_cell(cells, location_idx),
+                source_isin=isin,
+            )
+        )
+
+    return holdings
+
+
 def parse_xml_spreadsheet(path: Path, isin: str) -> list[Holding]:
     """
     Parse an iShares XML SpreadsheetML file (.xls) into holdings.
@@ -116,89 +293,26 @@ def parse_xml_spreadsheet(path: Path, isin: str) -> list[Holding]:
         logger.warning("Could not parse XML in %s.", path)
         return []
 
-    ns = "urn:schemas-microsoft-com:office:spreadsheet"
-    all_rows = root.findall(f".//{{{ns}}}Row")
+    table = extract_xml_rows(root)
 
-    # Extract cell values from each row
-    table: list[list[str]] = []
-
-    for row in all_rows:
-        cells: list[str] = []
-        for cell in row.findall(f"{{{ns}}}Cell"):
-            data = cell.find(f"{{{ns}}}Data")
-            cells.append(data.text if data is not None and data.text else "")
-        table.append(cells)
-
-    # Find header row (the one containing a known column name)
-    header_idx = None
-    for i, cells in enumerate(table):
-        for alias_list in COLUMN_ALIASES.values():
-            if any(alias in cells for alias in alias_list):
-                header_idx = i
-                break
-        if header_idx is not None:
-            break
-
+    header_idx = find_header_row(table)
     if header_idx is None:
         logger.warning("No header row found in XML file %s.", path)
         return []
 
     headers = table[header_idx]
-    col_name = resolve_column(headers, "name")
-    col_ticker = resolve_column(headers, "ticker")
-    col_sector = resolve_column(headers, "sector")
-    col_weight = resolve_column(headers, "weight")
-    col_location = resolve_column(headers, "location")
-    col_asset = resolve_column(headers, "asset_class")
+    indices = resolve_indices(
+        headers,
+        ["name", "ticker", "sector", "weight", "location", "asset_class"],
+    )
 
-    if col_name is None or col_weight is None:
+    if indices["name"] is None or indices["weight"] is None:
         logger.warning("Missing Name/Weight columns in %s.", path)
         return []
 
-    name_idx = headers.index(col_name)
-    ticker_idx = headers.index(col_ticker) if col_ticker else None
-    sector_idx = headers.index(col_sector) if col_sector else None
-    weight_idx = headers.index(col_weight)
-    location_idx = headers.index(col_location) if col_location else None
-    asset_idx = headers.index(col_asset) if col_asset else None
-
-    holdings: list[Holding] = []
-
-    for cells in table[header_idx + 1 :]:
-        if len(cells) <= weight_idx:
-            continue
-
-        # Filter to equities
-        if asset_idx is not None and len(cells) > asset_idx:
-            if cells[asset_idx] and cells[asset_idx] != "Equity":
-                continue
-
-        weight = parse_weight(cells[weight_idx])
-        if weight is None or weight <= 0:
-            continue
-
-        name = cells[name_idx] if len(cells) > name_idx else ""
-        if not name:
-            continue
-
-        holdings.append(
-            Holding(
-                name=name,
-                ticker=cells[ticker_idx]
-                if ticker_idx is not None and len(cells) > ticker_idx
-                else "",
-                sector=cells[sector_idx]
-                if sector_idx is not None and len(cells) > sector_idx
-                else "",
-                weight_pct=weight,
-                location=cells[location_idx]
-                if location_idx is not None and len(cells) > location_idx
-                else "",
-                source_isin=isin,
-            )
-        )
-
-    return holdings
+    return build_holdings_from_rows(
+        table, header_idx, indices, isin, filter_equity=True
+    )
 
 
 def parse_excel(path: Path, isin: str) -> list[Holding]:
@@ -218,74 +332,25 @@ def parse_excel(path: Path, isin: str) -> list[Holding]:
 
     df_raw = pl.read_excel(path, has_header=False, infer_schema_length=0)
 
-    # Find header row
-    header_idx = None
-    for i, raw_row in enumerate(df_raw.iter_rows()):
-        row_values = [str(v) if v else "" for v in raw_row]
-        for alias_list in COLUMN_ALIASES.values():
-            if any(alias in row_values for alias in alias_list):
-                header_idx = i
-                break
-        if header_idx is not None:
-            break
+    table: list[list[str]] = [
+        [str(v) if v else "" for v in df_raw.row(i)] for i in range(len(df_raw))
+    ]
 
+    header_idx = find_header_row(table)
     if header_idx is None:
         logger.warning("No header row found in %s.", path)
         return []
 
-    # Get headers and data
-    header_row = [str(v) if v else "" for v in df_raw.row(header_idx)]
+    headers = table[header_idx]
+    indices = resolve_indices(
+        headers, ["name", "ticker", "sector", "weight", "location"]
+    )
 
-    col_name = resolve_column(header_row, "name")
-    col_ticker = resolve_column(header_row, "ticker")
-    col_sector = resolve_column(header_row, "sector")
-    col_weight = resolve_column(header_row, "weight")
-    col_location = resolve_column(header_row, "location")
-
-    if col_name is None or col_weight is None:
+    if indices["name"] is None or indices["weight"] is None:
         logger.warning("Missing Name/Weight columns in %s.", path)
         return []
 
-    name_idx = header_row.index(col_name)
-    ticker_idx = header_row.index(col_ticker) if col_ticker else None
-    sector_idx = header_row.index(col_sector) if col_sector else None
-    weight_idx = header_row.index(col_weight)
-    location_idx = header_row.index(col_location) if col_location else None
-
-    holdings: list[Holding] = []
-
-    for i in range(header_idx + 1, len(df_raw)):
-        row: list[str] = [str(v) if v else "" for v in df_raw.row(i)]
-
-        if len(row) <= weight_idx:
-            continue
-
-        weight = parse_weight(row[weight_idx])
-        if weight is None or weight <= 0:
-            continue
-
-        name = row[name_idx] if len(row) > name_idx else ""
-        if not name or name == "null":
-            continue
-
-        holdings.append(
-            Holding(
-                name=name,
-                ticker=row[ticker_idx]
-                if ticker_idx is not None and len(row) > ticker_idx
-                else "",
-                sector=row[sector_idx]
-                if sector_idx is not None and len(row) > sector_idx
-                else "",
-                weight_pct=weight,
-                location=row[location_idx]
-                if location_idx is not None and len(row) > location_idx
-                else "",
-                source_isin=isin,
-            )
-        )
-
-    return holdings
+    return build_holdings_from_rows(table, header_idx, indices, isin)
 
 
 def parse_holdings_file(path: Path, isin: str) -> list[Holding]:
