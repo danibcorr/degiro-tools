@@ -16,22 +16,48 @@ from ..domain.constants import CENT_QUANTIZE
 from ..domain.models import InformeData, Lote, TramoCuota, Venta
 
 
-def _fmt(value: Decimal) -> str:
-    """Formatea un Decimal a 2 decimales sin separador de miles."""
+def fmt(value: Decimal) -> str:
+    """
+    Format a Decimal to 2 decimal places without thousands separator.
+
+    Args:
+        value: Decimal value to format.
+
+    Returns:
+        Formatted string with 2 decimal places.
+    """
 
     return str(value.quantize(CENT_QUANTIZE, rounding=ROUND_HALF_UP))
 
 
-def _gp_text(gp: Decimal, *, bold: bool = True) -> Text:
-    """Construye un Text coloreado según el signo de la G/P."""
+def gp_text(gp: Decimal, *, bold: bool = True) -> Text:
+    """
+    Build a colored Rich Text based on the sign of a gain/loss.
+
+    Args:
+        gp: Gain or loss amount.
+        bold: Whether to use bold styling.
+
+    Returns:
+        Rich Text with green (positive) or red (negative) styling.
+    """
 
     color = "green" if gp >= 0 else "red"
     style = f"bold {color}" if bold else color
-    return Text(_fmt(gp), style=style)
+    return Text(fmt(gp), style=style)
 
 
 def render_ventas_casadas(console: Console, ventas: list[Venta]) -> None:
-    """Renderiza la tabla de ventas casadas por FIFO."""
+    """
+    Render the table of FIFO-matched sales.
+
+    Args:
+        console: Rich Console instance for output.
+        ventas: List of matched sales.
+
+    Returns:
+        None.
+    """
 
     console.print(Rule("[bold]Ventas casadas (FIFO por ISIN)[/bold]"))
     console.print("[dim]valores en EUR reales del broker[/dim]")
@@ -55,9 +81,9 @@ def render_ventas_casadas(console: Console, ventas: list[Venta]) -> None:
             v.isin,
             v.producto,
             str(v.cantidad),
-            _fmt(v.coste_adq),
-            _fmt(v.valor_trans),
-            _gp_text(v.gp),
+            fmt(v.coste_adq),
+            fmt(v.valor_trans),
+            gp_text(v.gp),
         )
 
     console.print(table)
@@ -66,7 +92,17 @@ def render_ventas_casadas(console: Console, ventas: list[Venta]) -> None:
 def render_resumen_isin(
     console: Console, ventas: list[Venta], total_gp: Decimal
 ) -> None:
-    """Renderiza el resumen por ISIN y el total destacado."""
+    """
+    Render the per-ISIN summary and highlighted total gain/loss.
+
+    Args:
+        console: Rich Console instance for output.
+        ventas: List of matched sales.
+        total_gp: Total gain or loss across all sales.
+
+    Returns:
+        None.
+    """
 
     console.print(Rule("[bold]Resumen por ISIN[/bold]"))
 
@@ -79,7 +115,7 @@ def render_resumen_isin(
         table.add_column("ISIN")
         table.add_column("G/P acumulada (EUR)", justify="right")
         for isin, gp in ventas_por_isin.items():
-            table.add_row(isin, _gp_text(gp, bold=False))
+            table.add_row(isin, gp_text(gp, bold=False))
         console.print(table)
 
     if total_gp > 0:
@@ -91,7 +127,7 @@ def render_resumen_isin(
 
     console.print(
         Panel(
-            Text(f"{_fmt(total_gp)} EUR", style=f"bold {color}", justify="center"),
+            Text(f"{fmt(total_gp)} EUR", style=f"bold {color}", justify="center"),
             title="[bold]TOTAL GANANCIA/PÉRDIDA PATRIMONIAL[/bold]",
             border_style=color,
             box=box.HEAVY,
@@ -99,8 +135,17 @@ def render_resumen_isin(
     )
 
 
-def _tramos_table(cuota_irpf: list[TramoCuota], cuota_total: Decimal) -> Table:
-    """Construye la tabla con los tramos y la fila de cuota total."""
+def build_tramos_table(cuota_irpf: list[TramoCuota], cuota_total: Decimal) -> Table:
+    """
+    Build a Rich table with tax brackets and total tax row.
+
+    Args:
+        cuota_irpf: List of tax bracket breakdowns.
+        cuota_total: Total estimated tax amount.
+
+    Returns:
+        Rich Table with brackets and total.
+    """
 
     table = Table(box=box.ROUNDED, header_style="bold", expand=False)
     table.add_column("Desde", justify="right")
@@ -111,11 +156,11 @@ def _tramos_table(cuota_irpf: list[TramoCuota], cuota_total: Decimal) -> Table:
 
     for t in cuota_irpf:
         table.add_row(
-            _fmt(t.desde),
-            _fmt(t.hasta) if t.hasta is not None else "∞",
+            fmt(t.desde),
+            fmt(t.hasta) if t.hasta is not None else "∞",
             f"{int(t.tipo * 100)}%",
-            _fmt(t.base),
-            _fmt(t.cuota),
+            fmt(t.base),
+            fmt(t.cuota),
         )
 
     table.add_section()
@@ -124,7 +169,7 @@ def _tramos_table(cuota_irpf: list[TramoCuota], cuota_total: Decimal) -> Table:
         "",
         "",
         Text("CUOTA ESTIMADA TOTAL", style="bold"),
-        Text(_fmt(cuota_total), style="bold yellow"),
+        Text(fmt(cuota_total), style="bold yellow"),
     )
     return table
 
@@ -132,7 +177,17 @@ def _tramos_table(cuota_irpf: list[TramoCuota], cuota_total: Decimal) -> Table:
 def render_cuota_irpf(
     console: Console, total_gp: Decimal, cuota_irpf: list[TramoCuota] | None
 ) -> None:
-    """Renderiza la estimación de cuota IRPF y el neto tras impuestos."""
+    """
+    Render the IRPF tax estimation and net after-tax amount.
+
+    Args:
+        console: Rich Console instance for output.
+        total_gp: Total gain or loss.
+        cuota_irpf: Tax bracket breakdown, or None if not applicable.
+
+    Returns:
+        None.
+    """
 
     console.print(Rule("[bold]Estimación cuota IRPF[/bold]"))
     console.print("[dim]base imponible del ahorro, tramos art. 66 LIRPF[/dim]")
@@ -154,12 +209,12 @@ def render_cuota_irpf(
         return
 
     cuota_total = sum((t.cuota for t in cuota_irpf), Decimal(0))
-    console.print(_tramos_table(cuota_irpf, cuota_total))
+    console.print(build_tramos_table(cuota_irpf, cuota_total))
 
     neto = (total_gp - cuota_total).quantize(CENT_QUANTIZE, rounding=ROUND_HALF_UP)
     console.print(
         Panel(
-            Text(f"{_fmt(neto)} EUR", style="bold cyan", justify="center"),
+            Text(f"{fmt(neto)} EUR", style="bold cyan", justify="center"),
             title="[bold]Neto después de impuestos[/bold]",
             border_style="cyan",
             box=box.HEAVY,
@@ -170,11 +225,20 @@ def render_cuota_irpf(
 def render_comisiones_conectividad(
     console: Console, comisiones_conectividad: Decimal
 ) -> None:
-    """Renderiza el bloque de comisiones de conectividad no imputadas."""
+    """
+    Render the connectivity fees block not attributed to operations.
+
+    Args:
+        console: Rich Console instance for output.
+        comisiones_conectividad: Total connectivity fees in EUR.
+
+    Returns:
+        None.
+    """
 
     console.print(Rule("[bold]Gastos de custodia no imputados a operaciones[/bold]"))
     console.print(
-        f"[dim]Comisiones de conectividad: {_fmt(comisiones_conectividad)} EUR[/dim]"
+        f"[dim]Comisiones de conectividad: {fmt(comisiones_conectividad)} EUR[/dim]"
     )
     console.print(
         "[dim]No se suman al coste FIFO; declarables por separado según "
@@ -183,7 +247,16 @@ def render_comisiones_conectividad(
 
 
 def render_rentabilidad_neta(console: Console, rentabilidad_neta: Decimal) -> None:
-    """Renderiza el panel final de rentabilidad neta real."""
+    """
+    Render the final net return panel after taxes and fees.
+
+    Args:
+        console: Rich Console instance for output.
+        rentabilidad_neta: Net return amount in EUR.
+
+    Returns:
+        None.
+    """
 
     if rentabilidad_neta > 0:
         color = "green"
@@ -195,7 +268,7 @@ def render_rentabilidad_neta(console: Console, rentabilidad_neta: Decimal) -> No
     console.print(
         Panel(
             Text(
-                f"{_fmt(rentabilidad_neta)} EUR",
+                f"{fmt(rentabilidad_neta)} EUR",
                 style=f"bold {color}",
                 justify="center",
             ),
@@ -210,7 +283,16 @@ def render_rentabilidad_neta(console: Console, rentabilidad_neta: Decimal) -> No
 
 
 def render_lotes_pendientes(console: Console, lotes: dict[str, deque[Lote]]) -> None:
-    """Renderiza la cartera abierta (lotes pendientes) por ISIN."""
+    """
+    Render the open portfolio (pending lots) grouped by ISIN.
+
+    Args:
+        console: Rich Console instance for output.
+        lotes: Dict mapping ISIN to deque of remaining lots.
+
+    Returns:
+        None.
+    """
 
     console.print(Rule("[bold]Cartera abierta (lotes pendientes)[/bold]"))
 
@@ -243,8 +325,17 @@ def render_lotes_pendientes(console: Console, lotes: dict[str, deque[Lote]]) -> 
     console.print(table)
 
 
-def _render_informe(console: Console, data: InformeData) -> None:
-    """Orquesta el renderizado a partir de ``InformeData`` precomputado."""
+def render_informe_sections(console: Console, data: InformeData) -> None:
+    """
+    Orchestrate the rendering from precomputed InformeData.
+
+    Args:
+        console: Rich Console instance for output.
+        data: Precomputed report data with sales, taxes, and lots.
+
+    Returns:
+        None.
+    """
 
     console.print(
         Rule(
@@ -289,4 +380,4 @@ def imprimir_informe(
     data = build_informe_data(
         ventas, lotes, comisiones_conectividad, incluir_tax=incluir_tax
     )
-    _render_informe(console or Console(), data)
+    render_informe_sections(console or Console(), data)
