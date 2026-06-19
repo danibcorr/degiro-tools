@@ -104,7 +104,7 @@ jobs:
         run: uv run pyinstaller --onefile --name ${{ matrix.artifact }} --clean degiro_tools/__main__.py
 
       - name: Upload to Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ needs.create-release.outputs.version }}
           files: dist/${{ matrix.artifact }}
