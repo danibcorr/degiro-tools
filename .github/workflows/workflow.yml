@@ -101,7 +101,7 @@ jobs:
 
       - name: Build binary
         shell: bash
-        run: uv run pyinstaller --onefile --name ${{ matrix.artifact }} --clean degiro_tools/__main__.py
+        run: uv run pyinstaller --onefile --name ${{ matrix.artifact }} --clean --hidden-import=fastexcel degiro_tools/__main__.py
 
       - name: Upload to Release
         uses: softprops/action-gh-release@v2
