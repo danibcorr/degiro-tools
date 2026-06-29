@@ -4,77 +4,88 @@ from decimal import ROUND_HALF_UP, Decimal
 
 # Own modules
 from ..domain.constants import CENT_QUANTIZE
-from ..domain.models import Lote, Operacion, TipoOperacion, Venta
+from ..domain.models import Lot, Operation, OperationType, Sale
 
 
-def calcular_fifo(ops: list[Operacion]) -> tuple[list[Venta], dict[str, deque[Lote]]]:
+def calculate_fifo(ops: list[Operation]) -> tuple[list[Sale], dict[str, deque[Lot]]]:
     """
-    Consume lotes FIFO por ISIN y casa las ventas con su coste de adquisición.
+    Consume lots FIFO per ISIN and match sales to their cost.
 
-    Las comisiones de compra suman al coste (art. 35.1.b LIRPF) y las de venta
-    restan del valor de transmisión (art. 35.2 LIRPF).
+    Purchase fees add to the cost (art. 35.1.b LIRPF) and sale fees
+    subtract from the transfer value (art. 35.2 LIRPF).
 
     Args:
-        ops: Operaciones normalizadas ordenadas cronológicamente.
+        ops: Normalized operations sorted chronologically.
 
     Returns:
-        Tupla con:
-            - Lista de ventas casadas con G/P calculada.
-            - Diccionario ISIN → cola de lotes pendientes (cartera abierta).
+        Tuple containing:
+            - List of matched sales with computed gain/loss.
+            - Dict ISIN -> queue of pending lots (open portfolio).
 
     Raises:
-        ValueError: Si una venta no tiene lotes suficientes para consumir.
+        ValueError: If an operation has zero quantity or if a sale
+            does not have enough lots to consume.
     """
 
-    lotes: dict[str, deque[Lote]] = defaultdict(deque)
+    lots: dict[str, deque[Lot]] = defaultdict(deque)
 
-    ventas: list[Venta] = []
+    sales: list[Sale] = []
     for op in ops:
-        if op.tipo == TipoOperacion.COMPRA:
-            coste_total = abs(op.contravalor_eur) + abs(op.comision_eur)
+        if op.quantity == 0:
+            # Changed: reject zero-quantity operations explicitly -
+            # Reason: a zero-quantity buy divided by zero when computing
+            # the unit cost, raising a cryptic ZeroDivisionError.
+            raise ValueError(f"Operation with zero quantity: {op.date} {op.isin}")
 
-            lotes[op.isin].append(
-                Lote(
-                    cantidad=op.cantidad,
-                    coste_unit=coste_total / op.cantidad,
-                    fecha=op.fecha,
+        if op.operation_type == OperationType.BUY:
+            total_cost = abs(op.amount_eur) + abs(op.fee_eur)
+
+            lots[op.isin].append(
+                Lot(
+                    quantity=op.quantity,
+                    unit_cost=total_cost / op.quantity,
+                    date=op.date,
                 )
             )
 
             continue
 
-        valor_trans = op.contravalor_eur - abs(op.comision_eur)
-        cantidad_restante = op.cantidad
-        coste_adq = Decimal(0)
-        lotes_cola = lotes[op.isin]
+        transfer_value = op.amount_eur - abs(op.fee_eur)
+        remaining_quantity = op.quantity
+        acquisition_cost = Decimal(0)
+        lots_queue = lots[op.isin]
 
-        while cantidad_restante > 0:
-            if not lotes_cola:
+        while remaining_quantity > 0:
+            if not lots_queue:
                 raise ValueError(
-                    f"FIFO sin lotes suficientes para venta {op.fecha} {op.isin}"
+                    f"FIFO without enough lots for sale {op.date} {op.isin}"
                 )
 
-            lote = lotes_cola[0]
-            usar = min(cantidad_restante, lote.cantidad)
-            coste_adq += Decimal(usar) * lote.coste_unit
-            lote.cantidad -= usar
-            cantidad_restante -= usar
+            lot = lots_queue[0]
+            used = min(remaining_quantity, lot.quantity)
+            acquisition_cost += Decimal(used) * lot.unit_cost
+            lot.quantity -= used
+            remaining_quantity -= used
 
-            if lote.cantidad == 0:
-                lotes_cola.popleft()
+            if lot.quantity == 0:
+                lots_queue.popleft()
 
-        ventas.append(
-            Venta(
-                fecha=op.fecha,
+        sales.append(
+            Sale(
+                date=op.date,
                 isin=op.isin,
-                producto=op.producto,
-                cantidad=op.cantidad,
-                coste_adq=coste_adq.quantize(CENT_QUANTIZE, rounding=ROUND_HALF_UP),
-                valor_trans=valor_trans.quantize(CENT_QUANTIZE, rounding=ROUND_HALF_UP),
-                gp=(valor_trans - coste_adq).quantize(
+                product=op.product,
+                quantity=op.quantity,
+                acquisition_cost=acquisition_cost.quantize(
+                    CENT_QUANTIZE, rounding=ROUND_HALF_UP
+                ),
+                transfer_value=transfer_value.quantize(
+                    CENT_QUANTIZE, rounding=ROUND_HALF_UP
+                ),
+                gain_loss=(transfer_value - acquisition_cost).quantize(
                     CENT_QUANTIZE, rounding=ROUND_HALF_UP
                 ),
             )
         )
 
-    return ventas, lotes
+    return sales, lots

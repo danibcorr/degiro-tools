@@ -1,5 +1,8 @@
 # Standard libraries
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+
+# Own modules
+from .constants import COUNTRY_MAP, SECTOR_MAP
 
 
 @dataclass(frozen=True)
@@ -22,3 +25,30 @@ class Holding:
     weight_pct: float
     location: str
     source_isin: str
+
+
+def normalize_holding(holding: Holding) -> Holding:
+    """
+    Canonicalize a holding's sector and location labels.
+
+    Maps raw provider sector and country values to the project's
+    canonical vocabulary via SECTOR_MAP and COUNTRY_MAP. Values that
+    are already canonical (or absent from the maps) are returned
+    unchanged. This is the single normalization step applied at the
+    providers boundary so that every consumer receives canonical
+    holdings, regardless of the originating provider.
+
+    Args:
+        holding: Holding carrying raw provider sector and location
+            values.
+
+    Returns:
+        New Holding with normalized sector and location fields; all
+        other fields are preserved.
+    """
+
+    return replace(
+        holding,
+        sector=SECTOR_MAP.get(holding.sector, holding.sector),
+        location=COUNTRY_MAP.get(holding.location, holding.location),
+    )

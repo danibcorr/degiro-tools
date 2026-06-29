@@ -1,10 +1,9 @@
 # Standard libraries
 import logging
-from typing import Any
+from typing import Any, Final
 
 # 3pps
 import polars as pl
-import yfinance as yf
 
 # Own modules
 from ..domain.portfolio import (
@@ -17,55 +16,43 @@ from ..domain.portfolio import (
     OUTPUT_TOTAL_COL,
     OUTPUT_TYPE_COL,
 )
-from ..providers.yahoo import get_ticker_from_isin, get_usd_eur_rate, is_etf
+from ..providers.yahoo import get_price_eur, get_usd_eur_rate, is_etf
 
-logger = logging.getLogger(__name__)
+_FALLBACK_LOGGER: Final[logging.Logger] = logging.getLogger(__name__)
 
 
-def obtain_yahoo_info(df_input: pl.DataFrame) -> pl.DataFrame:
+def obtain_yahoo_info(
+    df_input: pl.DataFrame, logger: logging.Logger | None = None
+) -> pl.DataFrame:
     """
-    Enriquece el DataFrame de posiciones con precios actuales.
+    Enrich the positions DataFrame with current prices.
 
-    Para cada posición, resuelve el ticker vía ISIN, obtiene el
-    último precio, lo convierte a EUR si la divisa es USD, y calcula
-    el importe invertido.
+    For each position, resolves the ticker via ISIN, fetches the
+    latest price, converts it to EUR when the currency is USD, and
+    computes the invested amount.
 
     Args:
-        df_input: DataFrame con columnas Producto, Symbol/ISIN y
-            Cantidad (salida de parse_portfolio_xlsx).
+        df_input: DataFrame with columns Producto, Symbol/ISIN and
+            Cantidad (output of parse_portfolio_xlsx).
+        logger: Optional logger for diagnostics; falls back to a
+            module-level logger when omitted.
 
     Returns:
-        DataFrame con columnas adicionales: tipo de producto, precio
-        unitario en EUR y cantidad invertida en EUR.
+        DataFrame with additional columns: product type, unit price
+        in EUR and invested amount in EUR.
     """
 
-    eur_rate: float = get_usd_eur_rate()
+    log = logger if logger is not None else _FALLBACK_LOGGER
+    eur_rate: float | None = get_usd_eur_rate(logger=logger)
     data: list[dict[str, Any]] = []
 
     for product, isin, quantity in df_input.iter_rows():
-        ticker = get_ticker_from_isin(isin)
+        price_eur = get_price_eur(isin, eur_rate, logger=logger)
 
-        if ticker is None:
-            logger.warning("No ticker found for %s.", isin)
+        if price_eur is None:
+            log.warning("No price available for %s.", isin)
             continue
 
-        ticker_data = yf.Ticker(ticker)
-        last_price: float | None = None
-        currency: str = ""
-
-        try:
-            currency = ticker_data.fast_info["currency"]
-            last_price = ticker_data.fast_info["lastPrice"]
-        except (KeyError, AttributeError, ConnectionError):
-            info = ticker_data.info
-            currency = info.get("currency", "")
-            last_price = info.get("regularMarketPreviousClose")
-
-        if last_price is None:
-            logger.warning("No price available for %s.", isin)
-            continue
-
-        price_eur = last_price * eur_rate if currency == "USD" else last_price
         invested = quantity * price_eur
 
         data.append(
@@ -84,21 +71,24 @@ def obtain_yahoo_info(df_input: pl.DataFrame) -> pl.DataFrame:
 
 def compute_portfolio_percentage(df_input: pl.DataFrame) -> pl.DataFrame:
     """
-    Añade columnas de total invertido y porcentaje de cartera.
+    Add total invested and portfolio percentage columns.
 
     Args:
-        df_input: DataFrame con columna Invertido EUR (salida de
+        df_input: DataFrame with the Invertido EUR column (output of
             obtain_yahoo_info).
 
     Returns:
-        DataFrame con columnas adicionales Total EUR y Porcentaje
+        DataFrame with additional columns Total EUR and Porcentaje
         Cartera.
     """
 
     return df_input.with_columns(
         pl.col(OUTPUT_INVESTED_COL).sum().alias(OUTPUT_TOTAL_COL)
     ).with_columns(
-        (pl.col(OUTPUT_INVESTED_COL) / pl.col(OUTPUT_TOTAL_COL) * 100).alias(
-            OUTPUT_PERCENTAGE_COL
-        )
+        # Changed: guard against a zero total - Reason: an empty or
+        # all-zero portfolio used to yield NaN/inf percentages.
+        pl.when(pl.col(OUTPUT_TOTAL_COL) == 0)
+        .then(pl.lit(0.0))
+        .otherwise(pl.col(OUTPUT_INVESTED_COL) / pl.col(OUTPUT_TOTAL_COL) * 100)
+        .alias(OUTPUT_PERCENTAGE_COL)
     )

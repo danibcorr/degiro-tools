@@ -8,15 +8,18 @@ Python 3.11+ · [uv](https://docs.astral.sh/uv/) · `uv sync`
 ## Uso
 
 ```bash
-uv run degiro-tools tax Account.csv                          # IRPF (FIFO)
+uv run degiro-tools tax holdings/Account.xlsx                 # IRPF (FIFO)
 uv run degiro-tools portfolio holdings/Portfolio.xlsx        # Valoración actual
 uv run degiro-tools holdings holdings/Portfolio.xlsx         # Top holdings reales
 uv run degiro-tools overlap holdings/Portfolio.xlsx          # Solapamiento entre ETFs
 uv run degiro-tools sectors holdings/Portfolio.xlsx          # Distribución sectorial
 uv run degiro-tools geography holdings/Portfolio.xlsx        # Distribución geográfica
+uv run degiro-tools overview holdings/Portfolio.xlsx         # Vista global consolidada
 ```
 
-Los 4 últimos requieren `--config holdings.json` (default) con los ficheros de holdings.
+Los 5 últimos requieren `--config holdings.json` (default) con los ficheros de holdings.
+`overview` combina la valoración y los cuatro análisis en una sola pasada (carga los
+holdings una única vez) y solo escribe en stdout, por lo que no admite `--export`.
 
 ## Setup de holdings
 
@@ -37,7 +40,7 @@ Los 4 últimos requieren `--config holdings.json` (default) con los ficheros de 
 | Flag              | Descripción                                 |
 | ----------------- | ------------------------------------------- |
 | `--config <path>` | JSON de holdings (default: `holdings.json`) |
-| `--export <path>` | Exporta resultado a CSV                     |
+| `--export <path>` | Exporta resultado a CSV (no aplica a `overview`)         |
 | `--no-tax`        | Omite estimación IRPF (solo `tax`)          |
 | `-v`              | Traceback completo                          |
 

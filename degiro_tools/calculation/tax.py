@@ -3,56 +3,58 @@ from decimal import ROUND_HALF_UP, Decimal
 
 # Own modules
 from ..domain.constants import CENT_QUANTIZE
-from ..domain.models import TramoCuota
+from ..domain.models import TaxBracket
 
-TRAMOS_AHORRO: tuple[tuple[Decimal | None, Decimal], ...] = (
+SAVINGS_BRACKETS: tuple[tuple[Decimal | None, Decimal], ...] = (
     (Decimal("6000"), Decimal("0.19")),
     (Decimal("50000"), Decimal("0.21")),
     (Decimal("200000"), Decimal("0.23")),
     (Decimal("300000"), Decimal("0.27")),
+    # Top savings-base rate for income over EUR 300,000.
     (None, Decimal("0.30")),
 )
 
 
-def calcular_cuota_irpf(total_gp: Decimal) -> list[TramoCuota]:
+def calculate_irpf_quota(total_gain_loss: Decimal) -> list[TaxBracket]:
     """
-    Desglosa la cuota IRPF por tramos de la base del ahorro.
+    Break down the IRPF quota by savings-base brackets.
 
     Args:
-        total_gp: Ganancia patrimonial total positiva en EUR.
+        total_gain_loss: Total positive capital gain in EUR.
 
     Returns:
-        Lista de tramos aplicados con base y cuota. Vacía si ``total_gp <= 0``.
+        List of applied brackets with base and quota. Empty if
+        ``total_gain_loss <= 0``.
     """
 
-    if total_gp <= 0:
+    if total_gain_loss <= 0:
         return []
 
-    desglose: list[TramoCuota] = []
-    desde = Decimal(0)
-    restante = total_gp
+    breakdown: list[TaxBracket] = []
+    lower = Decimal(0)
+    remaining = total_gain_loss
 
-    for hasta, tipo in TRAMOS_AHORRO:
-        amplitud = (hasta - desde) if hasta is not None else restante
-        base_en_tramo = min(restante, amplitud)
+    for upper, rate in SAVINGS_BRACKETS:
+        width = (upper - lower) if upper is not None else remaining
+        bracket_base = min(remaining, width)
 
-        if base_en_tramo <= 0:
+        if bracket_base <= 0:
             break
 
-        cuota = (base_en_tramo * tipo).quantize(CENT_QUANTIZE, rounding=ROUND_HALF_UP)
-        desglose.append(
-            TramoCuota(
-                desde=desde.quantize(CENT_QUANTIZE),
-                hasta=hasta.quantize(CENT_QUANTIZE) if hasta is not None else None,
-                tipo=tipo,
-                base=base_en_tramo.quantize(CENT_QUANTIZE, rounding=ROUND_HALF_UP),
-                cuota=cuota,
+        quota = (bracket_base * rate).quantize(CENT_QUANTIZE, rounding=ROUND_HALF_UP)
+        breakdown.append(
+            TaxBracket(
+                lower=lower.quantize(CENT_QUANTIZE),
+                upper=upper.quantize(CENT_QUANTIZE) if upper is not None else None,
+                rate=rate,
+                base=bracket_base.quantize(CENT_QUANTIZE, rounding=ROUND_HALF_UP),
+                quota=quota,
             )
         )
-        restante -= base_en_tramo
-        desde = hasta if hasta is not None else desde
+        remaining -= bracket_base
+        lower = upper if upper is not None else lower
 
-        if restante <= 0:
+        if remaining <= 0:
             break
 
-    return desglose
+    return breakdown

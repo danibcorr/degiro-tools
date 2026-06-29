@@ -1,7 +1,11 @@
 # Standard libraries
 import argparse
+import logging
 import sys
 from pathlib import Path
+
+# 3pps
+from rich.console import Console
 
 # Own modules
 from . import __version__
@@ -11,11 +15,10 @@ from .analysis import (
     compute_sectors,
     load_portfolio_holdings,
 )
-from .calculation import calcular_fifo
+from .calculation import calculate_fifo
 from .calculation.portfolio import compute_portfolio_percentage, obtain_yahoo_info
-from .parsing import parse_csv
-from .parsing.xlsx_parser import parse_portfolio_xlsx
-from .reporting import imprimir_informe
+from .parsing import parse_account_xlsx, parse_portfolio_xlsx
+from .reporting import print_report
 from .reporting.analysis_report import (
     render_geography,
     render_holdings,
@@ -23,17 +26,23 @@ from .reporting.analysis_report import (
     render_portfolio,
     render_sectors,
 )
+from .utils import build_logger
 
 
-def add_analysis_args(parser: argparse.ArgumentParser) -> None:
+def add_analysis_args(
+    parser: argparse.ArgumentParser, include_export: bool = True
+) -> None:
     """
     Add shared arguments for analysis subcommands.
 
-    Registers xlsx_path, --config, --export and -v/--verbose flags
-    common to holdings, overlap, sectors and geography commands.
+    Registers xlsx_path, --config and -v/--verbose flags common to
+    holdings, overlap, sectors and geography commands. The --export
+    flag is added only when include_export is True; the consolidated
+    overview command opts out of it.
 
     Args:
         parser: The subcommand argument parser to extend.
+        include_export: Whether to register the --export CSV flag.
 
     Returns:
         None.
@@ -49,15 +58,16 @@ def add_analysis_args(parser: argparse.ArgumentParser) -> None:
         "--config",
         type=Path,
         default=Path("holdings.json"),
-        help="JSON config mapping ISIN to holdings CSV paths (default: holdings.json).",
+        help="JSON config mapping ISIN to holdings files (default: holdings.json).",
     )
 
-    parser.add_argument(
-        "--export",
-        type=Path,
-        default=None,
-        help="Export results to CSV at the given path.",
-    )
+    if include_export:
+        parser.add_argument(
+            "--export",
+            type=Path,
+            default=None,
+            help="Export results to CSV at the given path.",
+        )
 
     parser.add_argument(
         "-v",
@@ -95,9 +105,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Calcula ganancias/pérdidas patrimoniales IRPF.",
     )
     tax_p.add_argument(
-        "csv_path",
+        "account_path",
         type=Path,
-        help="Ruta al CSV de Estado de cuenta.",
+        help="Ruta al XLSX de Estado de cuenta (Account.xlsx).",
     )
     tax_p.add_argument(
         "--no-tax",
@@ -127,35 +137,46 @@ def build_arg_parser() -> argparse.ArgumentParser:
     ):
         add_analysis_args(sub.add_parser(name, help=help_text))
 
+    # --- overview (consolidated global view) ---
+    add_analysis_args(
+        sub.add_parser(
+            "overview",
+            help="Vista global: valoración + holdings, solapamiento, "
+            "sectores y geografía.",
+        ),
+        include_export=False,
+    )
+
     return parser
 
 
-def run_tax(args: argparse.Namespace) -> None:
+def run_tax(args: argparse.Namespace, logger: logging.Logger) -> None:
     """
     Execute the IRPF tax calculation flow.
 
-    Parses the Degiro CSV, applies FIFO matching and renders the
-    fiscal report.
+    Parses the Degiro Account.xlsx, applies FIFO matching and renders
+    the fiscal report.
 
     Args:
-        args: Parsed CLI arguments with csv_path and no_tax.
+        args: Parsed CLI arguments with account_path and no_tax.
+        logger: Application logger injected from the entry point.
 
     Returns:
         None.
     """
 
-    ops, comisiones_conectividad = parse_csv(args.csv_path)
-    ventas, lotes = calcular_fifo(ops)
+    ops, connectivity_fees = parse_account_xlsx(args.account_path, logger=logger)
+    sales, lots = calculate_fifo(ops)
 
-    imprimir_informe(
-        ventas,
-        lotes,
-        comisiones_conectividad,
-        incluir_tax=not args.no_tax,
+    print_report(
+        sales,
+        lots,
+        connectivity_fees,
+        include_tax=not args.no_tax,
     )
 
 
-def run_portfolio(args: argparse.Namespace) -> None:
+def run_portfolio(args: argparse.Namespace, logger: logging.Logger) -> None:
     """
     Execute the portfolio valuation flow.
 
@@ -164,23 +185,26 @@ def run_portfolio(args: argparse.Namespace) -> None:
 
     Args:
         args: Parsed CLI arguments with xlsx_path.
+        logger: Application logger injected from the entry point.
 
     Returns:
         None.
     """
 
     df = parse_portfolio_xlsx(args.xlsx_path)
-    df_with_info = obtain_yahoo_info(df)
+    df_with_info = obtain_yahoo_info(df, logger=logger)
     df_output = compute_portfolio_percentage(df_with_info)
 
     render_portfolio(df_output)
 
 
-def run_analysis(command: str, args: argparse.Namespace) -> None:
+def run_analysis(
+    command: str, args: argparse.Namespace, logger: logging.Logger
+) -> None:
     """
     Execute an analysis subcommand.
 
-    Loads portfolio holdings from CSVs configured in the holdings
+    Loads portfolio holdings from the files configured in the holdings
     JSON, computes effective weights, then dispatches to the
     appropriate rendering function.
 
@@ -188,12 +212,13 @@ def run_analysis(command: str, args: argparse.Namespace) -> None:
         command: Subcommand name (holdings, overlap, sectors, or
             geography).
         args: Parsed CLI arguments with xlsx_path, config, export.
+        logger: Application logger injected from the entry point.
 
     Returns:
         None.
     """
 
-    df = load_portfolio_holdings(args.xlsx_path, args.config)
+    df = load_portfolio_holdings(args.xlsx_path, args.config, logger=logger)
 
     if command == "holdings":
         render_holdings(df, export_path=args.export)
@@ -207,6 +232,47 @@ def run_analysis(command: str, args: argparse.Namespace) -> None:
     elif command == "geography":
         df_country, df_continent = compute_geography(df)
         render_geography(df_country, df_continent, export_path=args.export)
+
+
+def run_overview(args: argparse.Namespace, logger: logging.Logger) -> None:
+    """
+    Execute the consolidated global portfolio view.
+
+    Renders the current valuation (reusing the portfolio flow) and
+    then the four holdings analyses (top holdings, ETF overlap, sector
+    and geographic allocation). The underlying holdings DataFrame is
+    built only once via load_portfolio_holdings to avoid repeating the
+    Yahoo Finance network calls across sections. Output is printed to
+    stdout only; this command does not support --export.
+
+    Args:
+        args: Parsed CLI arguments with xlsx_path and config.
+        logger: Application logger injected from the entry point.
+
+    Returns:
+        None.
+    """
+
+    console = Console()
+
+    console.rule("[bold cyan]Valoración de la cartera[/bold cyan]")
+    run_portfolio(args, logger)
+
+    # Single load shared by the four analysis sections below.
+    df = load_portfolio_holdings(args.xlsx_path, args.config, logger=logger)
+
+    console.rule("[bold cyan]Principales posiciones reales[/bold cyan]")
+    render_holdings(df)
+
+    console.rule("[bold cyan]Solapamiento entre ETFs[/bold cyan]")
+    render_overlap(compute_overlap(df))
+
+    console.rule("[bold cyan]Distribución sectorial[/bold cyan]")
+    render_sectors(compute_sectors(df))
+
+    console.rule("[bold cyan]Distribución geográfica[/bold cyan]")
+    df_country, df_continent = compute_geography(df)
+    render_geography(df_country, df_continent)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -232,14 +298,17 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     verbose = getattr(args, "verbose", False)
+    logger = build_logger(verbose=verbose)
 
     try:
         if args.command == "tax":
-            run_tax(args)
+            run_tax(args, logger)
         elif args.command == "portfolio":
-            run_portfolio(args)
+            run_portfolio(args, logger)
+        elif args.command == "overview":
+            run_overview(args, logger)
         else:
-            run_analysis(args.command, args)
+            run_analysis(args.command, args, logger)
 
     except KeyboardInterrupt:
         return 130

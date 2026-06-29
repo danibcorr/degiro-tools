@@ -1,20 +1,18 @@
 # Standard libraries
-import json
-import logging
-import re
 import xml.etree.ElementTree as ET
 from collections.abc import Sequence
 from pathlib import Path
+from typing import Final
 
 # 3pps
 import polars as pl
 
 # Own modules
-from ..domain.holdings import Holding
+from ...domain.holdings import Holding
 
-logger = logging.getLogger(__name__)
+SPREADSHEETML_NS: Final[str] = "urn:schemas-microsoft-com:office:spreadsheet"
 
-COLUMN_ALIASES: dict[str, list[str]] = {
+COLUMN_ALIASES: Final[dict[str, list[str]]] = {
     "name": [
         "Name",
         "Nombre",
@@ -61,9 +59,10 @@ def resolve_column(headers: Sequence[str], field: str) -> str | None:
 
 def parse_weight(value: str) -> float | None:
     """
-    Parse a weight percentage string in either US or EU format.
+    Parse a weight value in US or EU notation.
 
-    Handles formats like "5.34", "5,34", "4,2547 %", "4.2547%".
+    Handles formats like "5.34", "5,34", "4,2547 %", "4.2547%" and
+    plain fractions such as "0.0785247806".
 
     Args:
         value: Raw weight string from the file.
@@ -91,7 +90,7 @@ def parse_weight(value: str) -> float | None:
 
 def find_header_row(table: list[list[str]]) -> int | None:
     """
-    Find the index of the header row in a table of string rows.
+    Find the header row index using the generic alias catalogue.
 
     Scans each row looking for any cell that matches a known column
     alias from ``COLUMN_ALIASES``.
@@ -112,6 +111,48 @@ def find_header_row(table: list[list[str]]) -> int | None:
             return i
 
     return None
+
+
+def find_header_row_with(
+    table: list[list[str]], required: frozenset[str]
+) -> int | None:
+    """
+    Find the first row containing every required header label.
+
+    Used by provider parsers to locate their header row via a
+    distinctive set of column names (content-based detection).
+
+    Args:
+        table: List of rows, each row a list of cell strings.
+        required: Header labels that must all be present in the row.
+
+    Returns:
+        Index of the matching row, or None if no row contains all
+        required labels.
+    """
+
+    for i, cells in enumerate(table):
+        if required <= {cell.strip() for cell in cells}:
+            return i
+
+    return None
+
+
+def index_of(headers: Sequence[str], name: str) -> int | None:
+    """
+    Resolve the position of an exact (stripped) header name.
+
+    Args:
+        headers: Row of column header strings.
+        name: Exact header label to locate.
+
+    Returns:
+        Column index, or None if the label is absent.
+    """
+
+    stripped = [header.strip() for header in headers]
+
+    return stripped.index(name) if name in stripped else None
 
 
 def resolve_indices(
@@ -150,17 +191,39 @@ def extract_xml_rows(root: ET.Element) -> list[list[str]]:
         List of rows, each row a list of cell text values.
     """
 
-    ns = "urn:schemas-microsoft-com:office:spreadsheet"
     table: list[list[str]] = []
 
-    for row in root.findall(f".//{{{ns}}}Row"):
+    for row in root.findall(f".//{{{SPREADSHEETML_NS}}}Row"):
         cells: list[str] = []
-        for cell in row.findall(f"{{{ns}}}Cell"):
-            data = cell.find(f"{{{ns}}}Data")
+        for cell in row.findall(f"{{{SPREADSHEETML_NS}}}Cell"):
+            data = cell.find(f"{{{SPREADSHEETML_NS}}}Data")
             cells.append(data.text if data is not None and data.text else "")
         table.append(cells)
 
     return table
+
+
+def read_xlsx_table(path: Path) -> list[list[str]]:
+    """
+    Read an XLSX file into a table of string cells.
+
+    Reads the first sheet without header inference so that provider
+    parsers can locate their own header row. Empty cells become
+    empty strings.
+
+    Args:
+        path: Path to the .xlsx file.
+
+    Returns:
+        List of rows, each row a list of cell strings.
+    """
+
+    df_raw = pl.read_excel(path, has_header=False, infer_schema_length=0)
+
+    return [
+        ["" if value is None else str(value) for value in df_raw.row(i)]
+        for i in range(len(df_raw))
+    ]
 
 
 def get_cell(cells: list[str], idx: int | None) -> str:
@@ -210,8 +273,9 @@ def build_holdings_from_rows(
     """
     Iterate data rows and build Holding objects.
 
-    Shared logic for both XML and XLSX parsers. Skips rows without
-    a valid positive weight or without a name.
+    Shared logic for providers that expose an explicit weight
+    column (iShares, Vanguard). Skips rows without a valid positive
+    weight or without a name.
 
     Args:
         table: All rows as lists of strings.
@@ -264,174 +328,3 @@ def build_holdings_from_rows(
         )
 
     return holdings
-
-
-def parse_xml_spreadsheet(path: Path, isin: str) -> list[Holding]:
-    """
-    Parse an iShares XML SpreadsheetML file (.xls) into holdings.
-
-    iShares exports .xls files that are actually XML in Microsoft's
-    SpreadsheetML format. This parser extracts rows from the XML
-    structure and maps columns by alias.
-
-    Args:
-        path: Path to the .xls file.
-        isin: Source ETF ISIN for attribution.
-
-    Returns:
-        List of equity Holding objects.
-    """
-
-    content = path.read_text(encoding="utf-8-sig").lstrip("\ufeff")
-
-    # Fix common XML issues in iShares exports
-    content = re.sub(r"&(?!amp;|lt;|gt;|quot;|apos;|#)", "&amp;", content)
-
-    try:
-        root = ET.fromstring(content)
-    except ET.ParseError:
-        logger.warning("Could not parse XML in %s.", path)
-        return []
-
-    table = extract_xml_rows(root)
-
-    header_idx = find_header_row(table)
-    if header_idx is None:
-        logger.warning("No header row found in XML file %s.", path)
-        return []
-
-    headers = table[header_idx]
-    indices = resolve_indices(
-        headers,
-        ["name", "ticker", "sector", "weight", "location", "asset_class"],
-    )
-
-    if indices["name"] is None or indices["weight"] is None:
-        logger.warning("Missing Name/Weight columns in %s.", path)
-        return []
-
-    return build_holdings_from_rows(
-        table, header_idx, indices, isin, filter_equity=True
-    )
-
-
-def parse_excel(path: Path, isin: str) -> list[Holding]:
-    """
-    Parse a standard XLSX holdings file (e.g. Vanguard) into holdings.
-
-    Reads the first sheet, detects the header row by scanning for
-    known column aliases, and parses subsequent rows.
-
-    Args:
-        path: Path to the .xlsx file.
-        isin: Source ETF ISIN for attribution.
-
-    Returns:
-        List of Holding objects.
-    """
-
-    df_raw = pl.read_excel(path, has_header=False, infer_schema_length=0)
-
-    table: list[list[str]] = [
-        [str(v) if v else "" for v in df_raw.row(i)] for i in range(len(df_raw))
-    ]
-
-    header_idx = find_header_row(table)
-    if header_idx is None:
-        logger.warning("No header row found in %s.", path)
-        return []
-
-    headers = table[header_idx]
-    indices = resolve_indices(
-        headers, ["name", "ticker", "sector", "weight", "location"]
-    )
-
-    if indices["name"] is None or indices["weight"] is None:
-        logger.warning("Missing Name/Weight columns in %s.", path)
-        return []
-
-    return build_holdings_from_rows(table, header_idx, indices, isin)
-
-
-def parse_holdings_file(path: Path, isin: str) -> list[Holding]:
-    """
-    Parse a holdings file in any supported format.
-
-    Detects the file type by extension and content, then dispatches
-    to the appropriate parser (XML SpreadsheetML or XLSX).
-
-    Args:
-        path: Path to the holdings file (.xls or .xlsx).
-        isin: Source ETF ISIN for attribution.
-
-    Returns:
-        List of Holding objects.
-    """
-
-    suffix = path.suffix.lower()
-
-    if suffix == ".xls":
-        return parse_xml_spreadsheet(path, isin)
-
-    if suffix == ".xlsx":
-        return parse_excel(path, isin)
-
-    # Try as plain text CSV
-    if suffix == ".csv":
-        return parse_xml_spreadsheet(path, isin)
-
-    logger.warning("Unsupported file format: %s.", path)
-    return []
-
-
-def load_holdings_config(config_path: Path) -> dict[str, Path]:
-    """
-    Load the ISIN-to-file-path mapping from a JSON config.
-
-    The JSON must be a flat object mapping ISIN strings to file
-    paths pointing to holdings files (.xls, .xlsx, or .csv).
-    Relative paths are resolved against the config file's directory.
-
-    Args:
-        config_path: Path to the JSON configuration file.
-
-    Returns:
-        Dict mapping ISIN to resolved Path of the holdings file.
-
-    Raises:
-        FileNotFoundError: If the config file does not exist.
-    """
-
-    if not config_path.exists():
-        error_message = (
-            f"Holdings config not found: {config_path}\n"
-            f"Create a JSON file mapping ISIN to holdings file, e.g.:\n"
-            f'{{"IE00B4L5Y983": "holdings/msci_world.xls"}}'
-        )
-        raise FileNotFoundError(error_message)
-
-    raw = config_path.read_text(encoding="utf-8")
-    data: dict[str, str] = json.loads(raw)
-    base_dir = config_path.parent
-
-    return {isin: base_dir / file_path for isin, file_path in data.items()}
-
-
-def fetch_holdings(isin: str, file_path: Path) -> list[Holding]:
-    """
-    Load holdings for an ETF from its local file.
-
-    Args:
-        isin: ISIN of the ETF.
-        file_path: Path to the holdings file.
-
-    Returns:
-        List of Holding objects. Empty list if file is missing or
-        unparseable.
-    """
-
-    if not file_path.exists():
-        logger.warning("Holdings file not found: %s.", file_path)
-        return []
-
-    return parse_holdings_file(file_path, isin)
