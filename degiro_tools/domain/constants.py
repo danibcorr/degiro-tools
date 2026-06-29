@@ -32,7 +32,7 @@ ETF_LIST_NAME: Final[tuple[str, ...]] = (
 
 SECTOR_MAP: Final[dict[str, str]] = {
     # Spanish -> English (iShares ES)
-    "Tecnología de la Información": "Technology",
+    "Tecnología de la Información": "Information Technology",
     "Financieros": "Financials",
     "Industriales": "Industrials",
     "Materiales": "Materials",
@@ -45,9 +45,18 @@ SECTOR_MAP: Final[dict[str, str]] = {
     "Inmobiliario": "Real Estate",
     "Otro": "Other",
     # Vanguard / alternative English names
+    "Technology": "Information Technology",
     "Consumer Defensive": "Consumer Staples",
     "Basic Materials": "Materials",
     "Telecommunications": "Communication",
+    # Xtrackers/DWS Spanish sub-industries -> GICS sector
+    "Energías Alternativas": "Utilities",
+    "Multiservicios": "Utilities",
+    "Productores de Energía Independientes y Operadores de Energía": "Utilities",
+    "Suministro Eléctrico": "Utilities",
+    "Suministro de Agua": "Utilities",
+    "Suministro de Gas": "Utilities",
+    "desconocido": "",
 }
 
 COUNTRY_MAP: Final[dict[str, str]] = {

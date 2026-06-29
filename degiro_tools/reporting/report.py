@@ -11,9 +11,9 @@ from rich.table import Table
 from rich.text import Text
 
 # Own modules
-from ..calculation.informe import build_informe_data
+from ..calculation.report_data import build_report_data
 from ..domain.constants import CENT_QUANTIZE
-from ..domain.models import InformeData, Lote, TramoCuota, Venta
+from ..domain.models import Lot, ReportData, Sale, TaxBracket
 
 
 def fmt(value: Decimal) -> str:
@@ -30,30 +30,30 @@ def fmt(value: Decimal) -> str:
     return str(value.quantize(CENT_QUANTIZE, rounding=ROUND_HALF_UP))
 
 
-def gp_text(gp: Decimal, *, bold: bool = True) -> Text:
+def gp_text(gain_loss: Decimal, *, bold: bool = True) -> Text:
     """
     Build a colored Rich Text based on the sign of a gain/loss.
 
     Args:
-        gp: Gain or loss amount.
+        gain_loss: Gain or loss amount.
         bold: Whether to use bold styling.
 
     Returns:
         Rich Text with green (positive) or red (negative) styling.
     """
 
-    color = "green" if gp >= 0 else "red"
+    color = "green" if gain_loss >= 0 else "red"
     style = f"bold {color}" if bold else color
-    return Text(fmt(gp), style=style)
+    return Text(fmt(gain_loss), style=style)
 
 
-def render_ventas_casadas(console: Console, ventas: list[Venta]) -> None:
+def render_matched_sales(console: Console, sales: list[Sale]) -> None:
     """
     Render the table of FIFO-matched sales.
 
     Args:
         console: Rich Console instance for output.
-        ventas: List of matched sales.
+        sales: List of matched sales.
 
     Returns:
         None.
@@ -62,7 +62,7 @@ def render_ventas_casadas(console: Console, ventas: list[Venta]) -> None:
     console.print(Rule("[bold]Ventas casadas (FIFO por ISIN)[/bold]"))
     console.print("[dim]valores en EUR reales del broker[/dim]")
 
-    if not ventas:
+    if not sales:
         console.print("[dim]Sin ventas en el ejercicio.[/dim]")
         return
 
@@ -75,30 +75,30 @@ def render_ventas_casadas(console: Console, ventas: list[Venta]) -> None:
     table.add_column("Valor trans.", justify="right")
     table.add_column("G/P", justify="right")
 
-    for v in ventas:
+    for sale in sales:
         table.add_row(
-            str(v.fecha),
-            v.isin,
-            v.producto,
-            str(v.cantidad),
-            fmt(v.coste_adq),
-            fmt(v.valor_trans),
-            gp_text(v.gp),
+            str(sale.date),
+            sale.isin,
+            sale.product,
+            str(sale.quantity),
+            fmt(sale.acquisition_cost),
+            fmt(sale.transfer_value),
+            gp_text(sale.gain_loss),
         )
 
     console.print(table)
 
 
-def render_resumen_isin(
-    console: Console, ventas: list[Venta], total_gp: Decimal
+def render_isin_summary(
+    console: Console, sales: list[Sale], total_gain_loss: Decimal
 ) -> None:
     """
     Render the per-ISIN summary and highlighted total gain/loss.
 
     Args:
         console: Rich Console instance for output.
-        ventas: List of matched sales.
-        total_gp: Total gain or loss across all sales.
+        sales: List of matched sales.
+        total_gain_loss: Total gain or loss across all sales.
 
     Returns:
         None.
@@ -106,28 +106,32 @@ def render_resumen_isin(
 
     console.print(Rule("[bold]Resumen por ISIN[/bold]"))
 
-    ventas_por_isin: dict[str, Decimal] = defaultdict(lambda: Decimal(0))
-    for v in ventas:
-        ventas_por_isin[v.isin] += v.gp
+    gain_loss_by_isin: dict[str, Decimal] = defaultdict(lambda: Decimal(0))
+    for sale in sales:
+        gain_loss_by_isin[sale.isin] += sale.gain_loss
 
-    if ventas_por_isin:
+    if gain_loss_by_isin:
         table = Table(box=box.ROUNDED, header_style="bold", expand=False)
         table.add_column("ISIN")
         table.add_column("G/P acumulada (EUR)", justify="right")
-        for isin, gp in ventas_por_isin.items():
-            table.add_row(isin, gp_text(gp, bold=False))
+        for isin, gain_loss in gain_loss_by_isin.items():
+            table.add_row(isin, gp_text(gain_loss, bold=False))
         console.print(table)
 
-    if total_gp > 0:
+    if total_gain_loss > 0:
         color = "green"
-    elif total_gp < 0:
+    elif total_gain_loss < 0:
         color = "red"
     else:
         color = "yellow"
 
     console.print(
         Panel(
-            Text(f"{fmt(total_gp)} EUR", style=f"bold {color}", justify="center"),
+            Text(
+                f"{fmt(total_gain_loss)} EUR",
+                style=f"bold {color}",
+                justify="center",
+            ),
             title="[bold]TOTAL GANANCIA/PÉRDIDA PATRIMONIAL[/bold]",
             border_style=color,
             box=box.HEAVY,
@@ -135,13 +139,13 @@ def render_resumen_isin(
     )
 
 
-def build_tramos_table(cuota_irpf: list[TramoCuota], cuota_total: Decimal) -> Table:
+def build_brackets_table(irpf_quota: list[TaxBracket], total_quota: Decimal) -> Table:
     """
     Build a Rich table with tax brackets and total tax row.
 
     Args:
-        cuota_irpf: List of tax bracket breakdowns.
-        cuota_total: Total estimated tax amount.
+        irpf_quota: List of tax bracket breakdowns.
+        total_quota: Total estimated tax amount.
 
     Returns:
         Rich Table with brackets and total.
@@ -154,13 +158,13 @@ def build_tramos_table(cuota_irpf: list[TramoCuota], cuota_total: Decimal) -> Ta
     table.add_column("Base", justify="right")
     table.add_column("Cuota", justify="right")
 
-    for t in cuota_irpf:
+    for bracket in irpf_quota:
         table.add_row(
-            fmt(t.desde),
-            fmt(t.hasta) if t.hasta is not None else "∞",
-            f"{int(t.tipo * 100)}%",
-            fmt(t.base),
-            fmt(t.cuota),
+            fmt(bracket.lower),
+            fmt(bracket.upper) if bracket.upper is not None else "∞",
+            f"{int(bracket.rate * 100)}%",
+            fmt(bracket.base),
+            fmt(bracket.quota),
         )
 
     table.add_section()
@@ -169,21 +173,21 @@ def build_tramos_table(cuota_irpf: list[TramoCuota], cuota_total: Decimal) -> Ta
         "",
         "",
         Text("CUOTA ESTIMADA TOTAL", style="bold"),
-        Text(fmt(cuota_total), style="bold yellow"),
+        Text(fmt(total_quota), style="bold yellow"),
     )
     return table
 
 
-def render_cuota_irpf(
-    console: Console, total_gp: Decimal, cuota_irpf: list[TramoCuota] | None
+def render_irpf_quota(
+    console: Console, total_gain_loss: Decimal, irpf_quota: list[TaxBracket] | None
 ) -> None:
     """
     Render the IRPF tax estimation and net after-tax amount.
 
     Args:
         console: Rich Console instance for output.
-        total_gp: Total gain or loss.
-        cuota_irpf: Tax bracket breakdown, or None if not applicable.
+        total_gain_loss: Total gain or loss.
+        irpf_quota: Tax bracket breakdown, or None if not applicable.
 
     Returns:
         None.
@@ -202,19 +206,21 @@ def render_cuota_irpf(
         )
     )
 
-    if not cuota_irpf:
+    if not irpf_quota:
         console.print(
             "[dim]Sin cuota: no hay ganancia neta positiva en el ejercicio.[/dim]"
         )
         return
 
-    cuota_total = sum((t.cuota for t in cuota_irpf), Decimal(0))
-    console.print(build_tramos_table(cuota_irpf, cuota_total))
+    total_quota = sum((bracket.quota for bracket in irpf_quota), Decimal(0))
+    console.print(build_brackets_table(irpf_quota, total_quota))
 
-    neto = (total_gp - cuota_total).quantize(CENT_QUANTIZE, rounding=ROUND_HALF_UP)
+    net = (total_gain_loss - total_quota).quantize(
+        CENT_QUANTIZE, rounding=ROUND_HALF_UP
+    )
     console.print(
         Panel(
-            Text(f"{fmt(neto)} EUR", style="bold cyan", justify="center"),
+            Text(f"{fmt(net)} EUR", style="bold cyan", justify="center"),
             title="[bold]Neto después de impuestos[/bold]",
             border_style="cyan",
             box=box.HEAVY,
@@ -222,15 +228,13 @@ def render_cuota_irpf(
     )
 
 
-def render_comisiones_conectividad(
-    console: Console, comisiones_conectividad: Decimal
-) -> None:
+def render_connectivity_fees(console: Console, connectivity_fees: Decimal) -> None:
     """
     Render the connectivity fees block not attributed to operations.
 
     Args:
         console: Rich Console instance for output.
-        comisiones_conectividad: Total connectivity fees in EUR.
+        connectivity_fees: Total connectivity fees in EUR.
 
     Returns:
         None.
@@ -238,7 +242,7 @@ def render_comisiones_conectividad(
 
     console.print(Rule("[bold]Gastos de custodia no imputados a operaciones[/bold]"))
     console.print(
-        f"[dim]Comisiones de conectividad: {fmt(comisiones_conectividad)} EUR[/dim]"
+        f"[dim]Comisiones de conectividad: {fmt(connectivity_fees)} EUR[/dim]"
     )
     console.print(
         "[dim]No se suman al coste FIFO; declarables por separado según "
@@ -246,21 +250,21 @@ def render_comisiones_conectividad(
     )
 
 
-def render_rentabilidad_neta(console: Console, rentabilidad_neta: Decimal) -> None:
+def render_net_return(console: Console, net_return: Decimal) -> None:
     """
     Render the final net return panel after taxes and fees.
 
     Args:
         console: Rich Console instance for output.
-        rentabilidad_neta: Net return amount in EUR.
+        net_return: Net return amount in EUR.
 
     Returns:
         None.
     """
 
-    if rentabilidad_neta > 0:
+    if net_return > 0:
         color = "green"
-    elif rentabilidad_neta < 0:
+    elif net_return < 0:
         color = "red"
     else:
         color = "yellow"
@@ -268,7 +272,7 @@ def render_rentabilidad_neta(console: Console, rentabilidad_neta: Decimal) -> No
     console.print(
         Panel(
             Text(
-                f"{fmt(rentabilidad_neta)} EUR",
+                f"{fmt(net_return)} EUR",
                 style=f"bold {color}",
                 justify="center",
             ),
@@ -282,13 +286,13 @@ def render_rentabilidad_neta(console: Console, rentabilidad_neta: Decimal) -> No
     )
 
 
-def render_lotes_pendientes(console: Console, lotes: dict[str, deque[Lote]]) -> None:
+def render_pending_lots(console: Console, lots: dict[str, deque[Lot]]) -> None:
     """
     Render the open portfolio (pending lots) grouped by ISIN.
 
     Args:
         console: Rich Console instance for output.
-        lotes: Dict mapping ISIN to deque of remaining lots.
+        lots: Dict mapping ISIN to deque of remaining lots.
 
     Returns:
         None.
@@ -296,8 +300,8 @@ def render_lotes_pendientes(console: Console, lotes: dict[str, deque[Lote]]) -> 
 
     console.print(Rule("[bold]Cartera abierta (lotes pendientes)[/bold]"))
 
-    items: list[tuple[str, Lote]] = [
-        (isin, lote) for isin in sorted(lotes) for lote in lotes[isin]
+    items: list[tuple[str, Lot]] = [
+        (isin, lot) for isin in sorted(lots) for lot in lots[isin]
     ]
 
     if not items:
@@ -311,23 +315,23 @@ def render_lotes_pendientes(console: Console, lotes: dict[str, deque[Lote]]) -> 
     table.add_column("Coste medio (EUR/ud)", justify="right")
 
     prev_isin: str | None = None
-    for isin, lote in items:
+    for isin, lot in items:
         if prev_isin is not None and isin != prev_isin:
             table.add_section()
         table.add_row(
-            str(lote.fecha),
+            str(lot.date),
             isin,
-            str(lote.cantidad),
-            str(lote.coste_unit.quantize(Decimal("0.0001"))),
+            str(lot.quantity),
+            str(lot.unit_cost.quantize(Decimal("0.0001"))),
         )
         prev_isin = isin
 
     console.print(table)
 
 
-def render_informe_sections(console: Console, data: InformeData) -> None:
+def render_report_sections(console: Console, data: ReportData) -> None:
     """
-    Orchestrate the rendering from precomputed InformeData.
+    Orchestrate the rendering from precomputed ReportData.
 
     Args:
         console: Rich Console instance for output.
@@ -343,41 +347,40 @@ def render_informe_sections(console: Console, data: InformeData) -> None:
             "(IRPF España)[/bold]"
         )
     )
-    render_ventas_casadas(console, data.ventas)
-    render_resumen_isin(console, data.ventas, data.total_gp)
+    render_matched_sales(console, data.sales)
+    render_isin_summary(console, data.sales, data.total_gain_loss)
 
-    if data.incluir_tax:
-        render_cuota_irpf(console, data.total_gp, data.cuota_irpf)
+    if data.include_tax:
+        render_irpf_quota(console, data.total_gain_loss, data.irpf_quota)
 
-    if data.comisiones_conectividad > 0:
-        render_comisiones_conectividad(console, data.comisiones_conectividad)
+    if data.connectivity_fees > 0:
+        render_connectivity_fees(console, data.connectivity_fees)
 
-    if data.rentabilidad_neta is not None:
-        render_rentabilidad_neta(console, data.rentabilidad_neta)
+    if data.net_return is not None:
+        render_net_return(console, data.net_return)
 
-    render_lotes_pendientes(console, data.lotes_pendientes)
+    render_pending_lots(console, data.pending_lots)
 
 
-def imprimir_informe(
-    ventas: list[Venta],
-    lotes: dict[str, deque[Lote]],
-    comisiones_conectividad: Decimal = Decimal(0),
-    incluir_tax: bool = True,
+def print_report(
+    sales: list[Sale],
+    lots: dict[str, deque[Lot]],
+    connectivity_fees: Decimal = Decimal(0),
+    include_tax: bool = True,
     console: Console | None = None,
 ) -> None:
     """
-    Imprime el informe completo usando rich.
+    Print the full report using rich.
 
     Args:
-        ventas: Ventas casadas por FIFO.
-        lotes: Lotes pendientes por ISIN (cartera abierta).
-        comisiones_conectividad: Total de comisiones de conectividad del ejercicio.
-        incluir_tax: Si ``False`` omite el bloque de estimación IRPF y la
-            rentabilidad neta.
-        console: Consola rich a utilizar. Si es ``None`` se crea una por defecto.
+        sales: Sales matched by FIFO.
+        lots: Pending lots per ISIN (open portfolio).
+        connectivity_fees: Total connectivity fees for the period.
+        include_tax: If ``False`` omit the IRPF estimation block and
+            the net return.
+        console: Rich console to use. If ``None`` a default one is
+            created.
     """
 
-    data = build_informe_data(
-        ventas, lotes, comisiones_conectividad, incluir_tax=incluir_tax
-    )
-    render_informe_sections(console or Console(), data)
+    data = build_report_data(sales, lots, connectivity_fees, include_tax=include_tax)
+    render_report_sections(console or Console(), data)

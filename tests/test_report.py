@@ -9,57 +9,65 @@ import pytest
 from rich.console import Console
 
 # Own modules
-from degiro_tools import Lote, Venta, imprimir_informe
+from degiro_tools import Lot, Sale, print_report
 
 
 @pytest.fixture
-def ventas_simples() -> list[Venta]:
-    """Devuelve una venta sintética con G/P positiva de 50 EUR."""
+def simple_sales() -> list[Sale]:
+    """
+    Return a synthetic sale with a positive gain/loss of 50 EUR.
+    """
 
     return [
-        Venta(
-            fecha=date(2026, 3, 1),
+        Sale(
+            date=date(2026, 3, 1),
             isin="IE0000000099",
-            producto="TEST",
-            cantidad=10,
-            coste_adq=Decimal("100.00"),
-            valor_trans=Decimal("150.00"),
-            gp=Decimal("50.00"),
+            product="TEST",
+            quantity=10,
+            acquisition_cost=Decimal("100.00"),
+            transfer_value=Decimal("150.00"),
+            gain_loss=Decimal("50.00"),
         )
     ]
 
 
 @pytest.fixture
-def lotes_un_pendiente() -> dict[str, deque[Lote]]:
-    """Cartera con un único lote pendiente."""
+def one_pending_lot() -> dict[str, deque[Lot]]:
+    """
+    Portfolio with a single pending lot.
+    """
 
-    lotes: dict[str, deque[Lote]] = defaultdict(deque)
-    lotes["IE0000000099"].append(
-        Lote(cantidad=5, coste_unit=Decimal("10.00"), fecha=date(2026, 1, 15))
+    lots: dict[str, deque[Lot]] = defaultdict(deque)
+    lots["IE0000000099"].append(
+        Lot(quantity=5, unit_cost=Decimal("10.00"), date=date(2026, 1, 15))
     )
-    return lotes
+    return lots
 
 
-def _make_console() -> tuple[Console, io.StringIO]:
-    """Crea una consola rich sin color capturada en un StringIO."""
+def make_console() -> tuple[Console, io.StringIO]:
+    """
+    Create a colorless rich console captured in a StringIO.
+    """
 
     buf = io.StringIO()
     console = Console(file=buf, force_terminal=False, no_color=True, width=200)
     return console, buf
 
 
-def test_imprimir_informe_incluye_secciones_con_tax(
-    ventas_simples: list[Venta],
-    lotes_un_pendiente: dict[str, deque[Lote]],
+def test_print_report_includes_sections_with_tax(
+    simple_sales: list[Sale],
+    one_pending_lot: dict[str, deque[Lot]],
 ) -> None:
-    """Verifica que con tax se imprimen todas las secciones clave."""
+    """
+    Verify that with tax all the key sections are printed.
+    """
 
-    console, buf = _make_console()
-    imprimir_informe(
-        ventas_simples,
-        lotes_un_pendiente,
-        comisiones_conectividad=Decimal("5.00"),
-        incluir_tax=True,
+    console, buf = make_console()
+    print_report(
+        simple_sales,
+        one_pending_lot,
+        connectivity_fees=Decimal("5.00"),
+        include_tax=True,
         console=console,
     )
     out = buf.getvalue()
@@ -75,18 +83,20 @@ def test_imprimir_informe_incluye_secciones_con_tax(
     assert "IE0000000099" in out
 
 
-def test_imprimir_informe_no_tax_omite_bloques_fiscales(
-    ventas_simples: list[Venta],
-    lotes_un_pendiente: dict[str, deque[Lote]],
+def test_print_report_no_tax_omits_fiscal_blocks(
+    simple_sales: list[Sale],
+    one_pending_lot: dict[str, deque[Lot]],
 ) -> None:
-    """Verifica que ``--no-tax`` omite cuota IRPF y rentabilidad neta."""
+    """
+    Verify that ``--no-tax`` omits the IRPF quota and net return.
+    """
 
-    console, buf = _make_console()
-    imprimir_informe(
-        ventas_simples,
-        lotes_un_pendiente,
-        comisiones_conectividad=Decimal(0),
-        incluir_tax=False,
+    console, buf = make_console()
+    print_report(
+        simple_sales,
+        one_pending_lot,
+        connectivity_fees=Decimal(0),
+        include_tax=False,
         console=console,
     )
     out = buf.getvalue()
@@ -96,11 +106,13 @@ def test_imprimir_informe_no_tax_omite_bloques_fiscales(
     assert "TOTAL GANANCIA/PÉRDIDA PATRIMONIAL" in out
 
 
-def test_imprimir_informe_sin_ventas() -> None:
-    """Verifica que sin ventas se imprime total 0 y no hay rentabilidad neta."""
+def test_print_report_without_sales() -> None:
+    """
+    Verify that without sales it prints total 0 and no net return.
+    """
 
-    console, buf = _make_console()
-    imprimir_informe([], defaultdict(deque), incluir_tax=True, console=console)
+    console, buf = make_console()
+    print_report([], defaultdict(deque), include_tax=True, console=console)
     out = buf.getvalue()
 
     assert "TOTAL GANANCIA/PÉRDIDA PATRIMONIAL" in out
@@ -110,31 +122,33 @@ def test_imprimir_informe_sin_ventas() -> None:
     assert "Sin cuota" in out
 
 
-def test_imprimir_informe_cartera_vacia(
-    ventas_simples: list[Venta],
+def test_print_report_empty_portfolio(
+    simple_sales: list[Sale],
 ) -> None:
-    """Verifica el mensaje cuando no quedan lotes pendientes."""
+    """
+    Verify the message when no pending lots remain.
+    """
 
-    console, buf = _make_console()
-    imprimir_informe(
-        ventas_simples, defaultdict(deque), incluir_tax=True, console=console
-    )
+    console, buf = make_console()
+    print_report(simple_sales, defaultdict(deque), include_tax=True, console=console)
     out = buf.getvalue()
 
     assert "Sin cartera abierta." in out
 
 
-def test_imprimir_informe_comisiones_conectividad_oculto_si_cero(
-    ventas_simples: list[Venta],
+def test_print_report_connectivity_fees_hidden_when_zero(
+    simple_sales: list[Sale],
 ) -> None:
-    """Verifica que el bloque de conectividad se omite cuando no hay comisiones."""
+    """
+    Verify the connectivity block is omitted when there are no fees.
+    """
 
-    console, buf = _make_console()
-    imprimir_informe(
-        ventas_simples,
+    console, buf = make_console()
+    print_report(
+        simple_sales,
         defaultdict(deque),
-        comisiones_conectividad=Decimal(0),
-        incluir_tax=True,
+        connectivity_fees=Decimal(0),
+        include_tax=True,
         console=console,
     )
     out = buf.getvalue()
@@ -142,25 +156,27 @@ def test_imprimir_informe_comisiones_conectividad_oculto_si_cero(
     assert "Comisiones de conectividad" not in out
 
 
-def test_imprimir_informe_perdida_no_muestra_rentabilidad_neta(
-    lotes_un_pendiente: dict[str, deque[Lote]],
+def test_print_report_loss_hides_net_return(
+    one_pending_lot: dict[str, deque[Lot]],
 ) -> None:
-    """Verifica que una pérdida no genera cálculo de rentabilidad neta."""
+    """
+    Verify that a loss does not produce a net return computation.
+    """
 
-    ventas = [
-        Venta(
-            fecha=date(2026, 3, 1),
+    sales = [
+        Sale(
+            date=date(2026, 3, 1),
             isin="IE0000000099",
-            producto="TEST",
-            cantidad=10,
-            coste_adq=Decimal("200.00"),
-            valor_trans=Decimal("150.00"),
-            gp=Decimal("-50.00"),
+            product="TEST",
+            quantity=10,
+            acquisition_cost=Decimal("200.00"),
+            transfer_value=Decimal("150.00"),
+            gain_loss=Decimal("-50.00"),
         )
     ]
 
-    console, buf = _make_console()
-    imprimir_informe(ventas, lotes_un_pendiente, incluir_tax=True, console=console)
+    console, buf = make_console()
+    print_report(sales, one_pending_lot, include_tax=True, console=console)
     out = buf.getvalue()
 
     assert "RENTABILIDAD NETA" not in out

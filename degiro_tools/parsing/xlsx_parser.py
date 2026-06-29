@@ -10,17 +10,17 @@ from ..domain.portfolio import INPUT_ISIN_COL, INPUT_PRODUCT_COL, INPUT_QUANTITY
 
 def parse_portfolio_xlsx(path: Path) -> pl.DataFrame:
     """
-    Lee un XLSX de Portfolio Degiro y devuelve las posiciones activas.
+    Read a Degiro Portfolio XLSX and return the active positions.
 
-    Selecciona únicamente las columnas de producto, ISIN y cantidad,
-    descartando filas sin cantidad (posiciones cerradas o vacías).
+    Selects only the product, ISIN and quantity columns, discarding
+    rows without a quantity (closed or empty positions).
 
     Args:
-        path: Ruta al fichero Portfolio.xlsx exportado desde Degiro.
+        path: Path to the Portfolio.xlsx file exported from Degiro.
 
     Returns:
-        DataFrame con columnas Producto, Symbol/ISIN y Cantidad,
-        filtrado a posiciones con cantidad no nula.
+        DataFrame with columns Producto, Symbol/ISIN and Cantidad,
+        filtered to positions with a non-null quantity.
     """
 
     return (

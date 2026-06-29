@@ -1,11 +1,11 @@
 # Own modules
-from .models import InformeData, Lote, Operacion, TipoOperacion, TramoCuota, Venta
+from .models import Lot, Operation, OperationType, ReportData, Sale, TaxBracket
 
 __all__: list[str] = [
-    "InformeData",
-    "Lote",
-    "Operacion",
-    "TipoOperacion",
-    "TramoCuota",
-    "Venta",
+    "Lot",
+    "Operation",
+    "OperationType",
+    "ReportData",
+    "Sale",
+    "TaxBracket",
 ]

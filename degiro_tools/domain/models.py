@@ -6,130 +6,133 @@ from decimal import Decimal
 from enum import StrEnum
 
 
-class TipoOperacion(StrEnum):
+class OperationType(StrEnum):
     """
-    Tipo de operación bursátil reconocido por el parser.
+    Stock operation type recognized by the parser.
 
-    Hereda de ``str`` para mantener compatibilidad con comparaciones directas
-    contra literales ``"Compra"``/``"Venta"`` en renderizados existentes.
+    Inherits from ``str`` to keep compatibility with direct
+    comparisons against the ``"Compra"``/``"Venta"`` literals used by
+    existing renderers and by the Degiro XLSX statement data.
     """
 
-    COMPRA = "Compra"
-    VENTA = "Venta"
+    BUY = "Compra"
+    SELL = "Venta"
 
 
 @dataclass(frozen=True)
-class Operacion:
+class Operation:
     """
-    Operación normalizada de compra o venta en EUR reales del broker.
+    Normalized buy or sell operation in the broker's real EUR.
 
     Attributes:
-        fecha: Fecha de la operación.
-        hora: Hora en formato ``HH:MM``.
-        isin: Identificador ISIN del instrumento.
-        producto: Nombre descriptivo del producto.
-        tipo: ``TipoOperacion.COMPRA`` o ``TipoOperacion.VENTA``.
-        cantidad: Número de unidades.
-        contravalor_eur: Contravalor en EUR (signo incluido).
-        comision_eur: Comisiones imputables a la operación (signo incluido).
+        date: Operation date.
+        time: Time in ``HH:MM`` format.
+        isin: ISIN identifier of the instrument.
+        product: Descriptive product name.
+        operation_type: ``OperationType.BUY`` or ``OperationType.SELL``.
+        quantity: Number of units.
+        amount_eur: Consideration in EUR (sign included).
+        fee_eur: Fees attributable to the operation (sign included).
     """
 
-    fecha: date
-    hora: str
+    date: date
+    time: str
     isin: str
-    producto: str
-    tipo: TipoOperacion
-    cantidad: int
-    contravalor_eur: Decimal
-    comision_eur: Decimal
+    product: str
+    operation_type: OperationType
+    quantity: int
+    amount_eur: Decimal
+    fee_eur: Decimal
 
 
 @dataclass(frozen=True)
-class Venta:
+class Sale:
     """
-    Venta casada contra lotes FIFO con coste de adquisición imputado.
+    Sale matched against FIFO lots with its acquisition cost.
 
     Attributes:
-        fecha: Fecha de la venta.
-        isin: Identificador ISIN del instrumento.
-        producto: Nombre descriptivo del producto.
-        cantidad: Unidades vendidas.
-        coste_adq: Coste de adquisición FIFO imputado en EUR.
-        valor_trans: Valor de transmisión neto de comisiones en EUR.
-        gp: Ganancia o pérdida patrimonial (``valor_trans - coste_adq``).
+        date: Sale date.
+        isin: ISIN identifier of the instrument.
+        product: Descriptive product name.
+        quantity: Units sold.
+        acquisition_cost: FIFO acquisition cost imputed in EUR.
+        transfer_value: Transfer value net of fees in EUR.
+        gain_loss: Capital gain or loss
+            (``transfer_value - acquisition_cost``).
     """
 
-    fecha: date
+    date: date
     isin: str
-    producto: str
-    cantidad: int
-    coste_adq: Decimal
-    valor_trans: Decimal
-    gp: Decimal
+    product: str
+    quantity: int
+    acquisition_cost: Decimal
+    transfer_value: Decimal
+    gain_loss: Decimal
 
 
 @dataclass
-class Lote:
+class Lot:
     """
-    Lote de compra pendiente de consumir por FIFO.
+    Purchase lot pending consumption by FIFO.
 
-    Es mutable: la cantidad se decrementa a medida que las ventas lo consumen.
+    Mutable: the quantity is decremented as sales consume it.
 
     Attributes:
-        cantidad: Unidades pendientes en el lote.
-        coste_unit: Coste unitario en EUR (incluye la comisión de compra).
-        fecha: Fecha de la compra original.
+        quantity: Units remaining in the lot.
+        unit_cost: Unit cost in EUR (includes the purchase fee).
+        date: Date of the original purchase.
     """
 
-    cantidad: int
-    coste_unit: Decimal
-    fecha: date
+    quantity: int
+    unit_cost: Decimal
+    date: date
 
 
 @dataclass(frozen=True)
-class TramoCuota:
+class TaxBracket:
     """
-    Tramo de la base del ahorro (art. 66 LIRPF) con la base y cuota aplicadas.
+    Savings-base bracket (art. 66 LIRPF) with its base and quota.
 
     Attributes:
-        desde: Límite inferior del tramo en EUR.
-        hasta: Límite superior del tramo en EUR, o ``None`` si es el último.
-        tipo: Tipo impositivo aplicado (p. ej. ``0.19``).
-        base: Base imponible cubierta en este tramo en EUR.
-        cuota: Cuota resultante (``base * tipo``) en EUR.
+        lower: Lower bound of the bracket in EUR.
+        upper: Upper bound of the bracket in EUR, or ``None`` if last.
+        rate: Applied tax rate (e.g. ``0.19``).
+        base: Taxable base covered by this bracket in EUR.
+        quota: Resulting quota (``base * rate``) in EUR.
     """
 
-    desde: Decimal
-    hasta: Decimal | None
-    tipo: Decimal
+    lower: Decimal
+    upper: Decimal | None
+    rate: Decimal
     base: Decimal
-    cuota: Decimal
+    quota: Decimal
 
 
 @dataclass(frozen=True)
-class InformeData:
+class ReportData:
     """
-    Agregados precomputados del informe, desacoplados del formato de salida.
+    Precomputed report aggregates, decoupled from the output format.
 
-    Contiene toda la información necesaria para renderizar el informe en
-    cualquier formato (stdout, JSON, Excel) sin recalcular.
+    Holds all the information required to render the report in any
+    format (stdout, JSON, Excel) without recomputing.
 
     Attributes:
-        ventas: Ventas casadas por FIFO.
-        total_gp: Suma de ganancia/pérdida patrimonial del ejercicio.
-        cuota_irpf: Desglose por tramos o ``None`` si ``incluir_tax`` es ``False``
-            o si ``total_gp <= 0``.
-        comisiones_conectividad: Total absoluto de comisiones de conectividad.
-        rentabilidad_neta: Rentabilidad tras impuestos y gastos de custodia, o
-            ``None`` si no procede (``incluir_tax`` ``False`` o ``total_gp <= 0``).
-        lotes_pendientes: Cartera abierta tras aplicar FIFO.
-        incluir_tax: Indica si el informe debe renderizar el bloque IRPF.
+        sales: Sales matched by FIFO.
+        total_gain_loss: Sum of capital gain/loss for the period.
+        irpf_quota: Bracket breakdown, or ``None`` if ``include_tax``
+            is ``False`` or ``total_gain_loss <= 0``.
+        connectivity_fees: Absolute total of connectivity fees.
+        net_return: Return after taxes and custody fees, or ``None``
+            when not applicable (``include_tax`` ``False`` or
+            ``total_gain_loss <= 0``).
+        pending_lots: Open portfolio after applying FIFO.
+        include_tax: Whether the report must render the IRPF block.
     """
 
-    ventas: list[Venta]
-    total_gp: Decimal
-    cuota_irpf: list[TramoCuota] | None
-    comisiones_conectividad: Decimal
-    rentabilidad_neta: Decimal | None
-    lotes_pendientes: dict[str, deque[Lote]]
-    incluir_tax: bool
+    sales: list[Sale]
+    total_gain_loss: Decimal
+    irpf_quota: list[TaxBracket] | None
+    connectivity_fees: Decimal
+    net_return: Decimal | None
+    pending_lots: dict[str, deque[Lot]]
+    include_tax: bool

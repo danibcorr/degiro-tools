@@ -5,83 +5,173 @@ from decimal import Decimal
 import pytest
 
 # Own modules
-from degiro_tools import calcular_fifo
-from tests.conftest import make_compra, make_venta
+from degiro_tools import calculate_fifo
+from tests.conftest import make_buy, make_sell
 
-EXPECTED_PENDIENTES_CANTIDAD = 5
+EXPECTED_PENDING_QUANTITY = 5
 
 
-def test_fifo_venta_parcial_dos_lotes() -> None:
+def test_fifo_partial_sale_two_lots() -> None:
     """
-    Verifica que una venta consume FIFO dos lotes y deja el resto pendiente.
+    Verify a sale consumes FIFO across two lots and leaves the rest
+    pending.
     """
 
-    # Compra 10 ud, contravalor 100 EUR + comisión 1 EUR → coste_unit 10.10
-    # Compra 10 ud, contravalor 200 EUR + comisión 1 EUR → coste_unit 20.10
-    # Venta 15 ud, contravalor 450 EUR – comisión 1 EUR → valor_trans 449.00
-    # FIFO: 10·10.10 + 5·20.10 = 101.00 + 100.50 = 201.50 de coste
-    # G/P = 449.00 - 201.50 = 247.50
+    # Buy 10 units, amount 100 EUR + fee 1 EUR -> unit_cost 10.10
+    # Buy 10 units, amount 200 EUR + fee 1 EUR -> unit_cost 20.10
+    # Sell 15 units, amount 450 EUR - fee 1 EUR -> transfer_value 449.00
+    # FIFO: 10*10.10 + 5*20.10 = 101.00 + 100.50 = 201.50 cost
+    # gain_loss = 449.00 - 201.50 = 247.50
     ops = [
-        make_compra("X", 10, "-100", "-1", dia=1),
-        make_compra("X", 10, "-200", "-1", dia=2),
-        make_venta("X", 15, "450", "-1", dia=3),
+        make_buy("X", 10, "-100", "-1", day=1),
+        make_buy("X", 10, "-200", "-1", day=2),
+        make_sell("X", 15, "450", "-1", day=3),
     ]
 
-    ventas, lotes = calcular_fifo(ops)
+    sales, lots = calculate_fifo(ops)
 
-    assert len(ventas) == 1
-    v = ventas[0]
-    assert v.coste_adq == Decimal("201.50")
-    assert v.valor_trans == Decimal("449.00")
-    assert v.gp == Decimal("247.50")
-    pendientes = list(lotes["X"])
-    assert len(pendientes) == 1
-    assert pendientes[0].cantidad == EXPECTED_PENDIENTES_CANTIDAD
-    assert pendientes[0].coste_unit == Decimal("20.1")
+    assert len(sales) == 1
+    sale = sales[0]
+    assert sale.acquisition_cost == Decimal("201.50")
+    assert sale.transfer_value == Decimal("449.00")
+    assert sale.gain_loss == Decimal("247.50")
+    pending = list(lots["X"])
+    assert len(pending) == 1
+    assert pending[0].quantity == EXPECTED_PENDING_QUANTITY
+    assert pending[0].unit_cost == Decimal("20.1")
 
 
-def test_fifo_aislado_por_isin() -> None:
+def test_fifo_isolated_per_isin() -> None:
     """
-    Verifica que las ventas de un ISIN no consumen lotes de otro ISIN.
-    """
-
-    ops = [
-        make_compra("X", 5, "-50", "0", dia=1),
-        make_compra("Y", 5, "-100", "0", dia=2),
-        make_venta("X", 5, "75", "0", dia=3),
-    ]
-
-    ventas, lotes = calcular_fifo(ops)
-
-    assert ventas[0].gp == Decimal("25.00")
-    assert len(lotes["Y"]) == 1
-    assert not lotes["X"]
-
-
-def test_fifo_sin_lotes_suficientes_lanza_error() -> None:
-    """
-    Verifica que vender más unidades de las compradas lanza ``ValueError``.
+    Verify sales of one ISIN do not consume lots of another ISIN.
     """
 
     ops = [
-        make_compra("X", 5, "-50", "0", dia=1),
-        make_venta("X", 10, "100", "0", dia=2),
+        make_buy("X", 5, "-50", "0", day=1),
+        make_buy("Y", 5, "-100", "0", day=2),
+        make_sell("X", 5, "75", "0", day=3),
     ]
 
-    with pytest.raises(ValueError, match="FIFO sin lotes suficientes"):
-        calcular_fifo(ops)
+    sales, lots = calculate_fifo(ops)
+
+    assert sales[0].gain_loss == Decimal("25.00")
+    assert len(lots["Y"]) == 1
+    assert not lots["X"]
 
 
-def test_fifo_venta_vacia_lote_exactamente() -> None:
-    """Verifica que una venta que consume todo el lote lo retira de la cola."""
+def test_fifo_not_enough_lots_raises_error() -> None:
+    """
+    Verify selling more units than bought raises ``ValueError``.
+    """
 
     ops = [
-        make_compra("X", 10, "-100", "0", dia=1),
-        make_venta("X", 10, "150", "0", dia=2),
+        make_buy("X", 5, "-50", "0", day=1),
+        make_sell("X", 10, "100", "0", day=2),
     ]
 
-    ventas, lotes = calcular_fifo(ops)
+    with pytest.raises(ValueError, match="FIFO without enough lots"):
+        calculate_fifo(ops)
 
-    assert len(ventas) == 1
-    assert ventas[0].gp == Decimal("50.00")
-    assert len(lotes["X"]) == 0
+
+def test_fifo_sale_empties_lot_exactly() -> None:
+    """
+    Verify a sale consuming the whole lot removes it from the queue.
+    """
+
+    ops = [
+        make_buy("X", 10, "-100", "0", day=1),
+        make_sell("X", 10, "150", "0", day=2),
+    ]
+
+    sales, lots = calculate_fifo(ops)
+
+    assert len(sales) == 1
+    assert sales[0].gain_loss == Decimal("50.00")
+    assert len(lots["X"]) == 0
+
+
+def test_fifo_zero_quantity_raises_error() -> None:
+    """
+    Verify an operation with zero quantity raises ``ValueError``.
+    """
+
+    # A buy with quantity 0 divided by zero when computing the unit
+    # cost, causing an opaque ZeroDivisionError.
+    ops = [make_buy("X", 0, "-100", "-1", day=1)]
+
+    with pytest.raises(ValueError, match="zero quantity"):
+        calculate_fifo(ops)
+
+
+def test_fifo_purchase_fee_adds_to_cost() -> None:
+    """
+    Verify the purchase fee is capitalized into the lot unit cost.
+    """
+
+    # Buy 10 @ EUR 100 + fee 1 -> unit_cost (100 + 1) / 10 = 10.10.
+    sales, lots = calculate_fifo([make_buy("X", 10, "-100", "-1", day=1)])
+
+    assert sales == []
+    assert lots["X"][0].unit_cost == Decimal("10.10")
+
+
+def test_fifo_sale_fee_subtracts_from_transfer_value() -> None:
+    """
+    Verify the sale fee is deducted from the transfer value.
+    """
+
+    ops = [
+        make_buy("X", 10, "-100", "0", day=1),
+        make_sell("X", 10, "150", "-2", day=2),
+    ]
+
+    sales, _ = calculate_fifo(ops)
+
+    assert sales[0].transfer_value == Decimal("148.00")
+
+
+def test_fifo_single_buy_sell_with_gain() -> None:
+    """
+    Verify a single buy then sell produces the expected gain.
+    """
+
+    ops = [
+        make_buy("X", 5, "-50", "0", day=1),
+        make_sell("X", 5, "75", "0", day=2),
+    ]
+
+    sales, _ = calculate_fifo(ops)
+
+    assert sales[0].gain_loss == Decimal("25.00")
+
+
+def test_fifo_single_buy_sell_with_loss() -> None:
+    """
+    Verify a single buy then sell at a lower price produces a loss.
+    """
+
+    ops = [
+        make_buy("X", 5, "-50", "0", day=1),
+        make_sell("X", 5, "30", "0", day=2),
+    ]
+
+    sales, _ = calculate_fifo(ops)
+
+    assert sales[0].gain_loss == Decimal("-20.00")
+
+
+def test_fifo_quantization_only_at_sale_boundary() -> None:
+    """
+    Verify intermediate costs round to cents only at the Sale boundary.
+    """
+
+    # Buy 3 @ EUR 10 (no fee) -> unit_cost = 10/3 = 3.3333...
+    # Sell 1 -> acquisition_cost = 3.3333... quantized to 3.33.
+    ops = [
+        make_buy("X", 3, "-10", "0", day=1),
+        make_sell("X", 1, "5", "0", day=2),
+    ]
+
+    sales, _ = calculate_fifo(ops)
+
+    assert sales[0].acquisition_cost == Decimal("3.33")

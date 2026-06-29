@@ -1,4 +1,4 @@
 # Own modules
-from .report import imprimir_informe
+from .report import print_report
 
-__all__: list[str] = ["imprimir_informe"]
+__all__: list[str] = ["print_report"]
