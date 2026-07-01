@@ -30,7 +30,7 @@ pipeline = [
     "complexipy==5.6.1",
     "mypy==2.1.0",
     "pytest==9.1.0",
-    "ruff==0.15.18",
+    "ruff==0.15.20",
 ]
 
 [project.scripts]
